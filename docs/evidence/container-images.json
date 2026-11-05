@@ -1,0 +1,17 @@
+[
+  {
+    "repoDigests": "node@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
+    "id": "sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
+    "tag": "node:24-bookworm-slim"
+  },
+  {
+    "repoDigests": "postgres@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994",
+    "id": "sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994",
+    "tag": "postgres:17-bookworm"
+  },
+  {
+    "repoDigests": "caddy@sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf",
+    "id": "sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf",
+    "tag": "caddy:2"
+  }
+]

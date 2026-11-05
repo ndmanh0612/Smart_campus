@@ -1,0 +1,29 @@
+(campus) {
+  handle /api/v1/internal/* {
+    respond 404
+  }
+  handle /api/* {
+    reverse_proxy backend:8081
+  }
+  handle /socket.io/* {
+    reverse_proxy backend:8081
+  }
+  handle /healthz {
+    reverse_proxy backend:8081
+  }
+  handle /readyz {
+    reverse_proxy backend:8081
+  }
+  handle {
+    root * /srv
+    try_files {path} /index.html
+    file_server
+  }
+}
+http://{$APP_DOMAIN} {
+  import campus
+}
+https://{$APP_DOMAIN} {
+  tls internal
+  import campus
+}

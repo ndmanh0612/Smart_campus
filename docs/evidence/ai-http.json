@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/healthz",
+    "expected": 200,
+    "actual": 200,
+    "status": "PASS"
+  },
+  {
+    "path": "/readyz",
+    "expected": 401,
+    "actual": 401,
+    "status": "PASS"
+  },
+  {
+    "path": "/readyz",
+    "expected": 503,
+    "actual": 503,
+    "status": "PASS"
+  },
+  {
+    "path": "/internal/face/verify",
+    "expected": 503,
+    "actual": 503,
+    "status": "PASS"
+  }
+]

@@ -1,0 +1,10 @@
+test_blank (test_runtime.Tests.test_blank) ... ok
+test_embedding (test_runtime.Tests.test_embedding) ... ok
+test_empty (test_runtime.Tests.test_empty) ... ok
+test_fail_closed (test_runtime.Tests.test_fail_closed) ... ok
+test_percentile (test_runtime.Tests.test_percentile) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.688s
+
+OK

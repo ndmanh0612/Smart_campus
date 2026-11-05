@@ -1,0 +1,25 @@
+{
+  "kind": "SYNTHETIC_RUNTIME_ONLY",
+  "python": "3.12.14",
+  "runs": 100,
+  "warmup": 5,
+  "cold_load_ms": 288.36540000338573,
+  "detector_blank_ms": {
+    "p50": 81.3170000037644,
+    "p95": 215.03439999651164
+  },
+  "embedding_synthetic_ms": {
+    "p50": 63.58480000926647,
+    "p95": 195.84740001300815
+  },
+  "authorization": {
+    "verified": false,
+    "reason": "PAD_NOT_CONFIGURED",
+    "threshold": "NOT_CALIBRATED"
+  },
+  "limitations": [
+    "No real faces, no alignment/PAD/accuracy",
+    "Not 20 clients for 10 minutes",
+    "Not a VPS benchmark; do not add component P95 into end-to-end P95"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "postgres": "postgres (PostgreSQL) 17.11 (Debian 17.11-1.pgdg12+2)",
+  "caddy": "v2.11.8 h1:E2pv1BoZ5bJaWqFkU6QvLa21iGAX8bDzlEQG4dDQ/Vc=",
+  "status": "PASS",
+  "node": "v24.22.2",
+  "dbPortPublished": false,
+  "services": [
+    {
+      "Service": "backend",
+      "State": "running",
+      "Health": "healthy",
+      "Publishers": [
+        {
+          "URL": "",
+          "TargetPort": 8081,
+          "PublishedPort": 0,
+          "Protocol": "tcp"
+        }
+      ]
+    },
+    {
+      "Service": "db",
+      "State": "running",
+      "Health": "healthy",
+      "Publishers": [
+        {
+          "URL": "",
+          "TargetPort": 5432,
+          "PublishedPort": 0,
+          "Protocol": "tcp"
+        }
+      ]
+    },
+    {
+      "Service": "proxy",
+      "State": "running",
+      "Health": "",
+      "Publishers": [
+        {
+          "URL": "0.0.0.0",
+          "TargetPort": 80,
+          "PublishedPort": 8080,
+          "Protocol": "tcp"
+        },
+        {
+          "URL": "::",
+          "TargetPort": 80,
+          "PublishedPort": 8080,
+          "Protocol": "tcp"
+        },
+        {
+          "URL": "0.0.0.0",
+          "TargetPort": 443,
+          "PublishedPort": 8443,
+          "Protocol": "tcp"
+        },
+        {
+          "URL": "::",
+          "TargetPort": 443,
+          "PublishedPort": 8443,
+          "Protocol": "tcp"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "checkedAt": "2026-11-05T13:41:25.719Z",
+  "mode": "SOFTWARE_DEMO_ONLY",
+  "rfidHardware": "NOT_RUN",
+  "topupId": "2486dd15-9621-40e8-b731-b5c63df434f1",
+  "orderId": "22dafba7-1093-4b40-a1bd-c8dce085a7a7",
+  "parkingSessionId": "7039af2c-41e6-4a0b-bcb7-4ae7b855f4e2",
+  "attendanceSessionId": "c4d9a102-683c-4068-af25-8345d00d3162",
+  "postedPoints": "82000",
+  "restart": {
+    "status": "PASS",
+    "checkedAt": "2026-11-05T13:54:36.186Z"
+  },
+  "checks": [
+    "proxy/static/local-assets",
+    "internal route blocked",
+    "RBAC",
+    "MOCK topup/retry/worker",
+    "POS Face DEMO/PIN/capture dedupe",
+    "parking Face/OCR DEMO/gate passage/capture",
+    "lecturer OPEN/Face DEMO/CLOSE/ABSENT",
+    "wallet reconciliation"
+  ]
+}

@@ -1,0 +1,250 @@
+TAP version 13
+# Subtest: runtime is restricted and migration is idempotent without public schema changes
+ok 1 - runtime is restricted and migration is idempotent without public schema changes
+  ---
+  duration_ms: 13362.7607
+  type: 'test'
+  ...
+# Subtest: config rejects production and unimplemented providers
+ok 2 - config rejects production and unimplemented providers
+  ---
+  duration_ms: 5919.0518
+  type: 'test'
+  ...
+# Subtest: RBAC, malformed input, and simulator access fail closed
+ok 3 - RBAC, malformed input, and simulator access fail closed
+  ---
+  duration_ms: 5679.0028
+  type: 'test'
+  ...
+# Subtest: refresh rotates, old token reuse revokes the new family
+ok 4 - refresh rotates, old token reuse revokes the new family
+  ---
+  duration_ms: 5714.3021
+  type: 'test'
+  ...
+# Subtest: mock callback credits once, mismatch and untrusted client cannot credit
+ok 5 - mock callback credits once, mismatch and untrusted client cannot credit
+  ---
+  duration_ms: 6002.335
+  type: 'test'
+  ...
+# Subtest: idempotency preserves result and rejects changed payload
+ok 6 - idempotency preserves result and rejects changed payload
+  ---
+  duration_ms: 5246.5059
+  type: 'test'
+  ...
+# Subtest: RFID scan retry, conflicting event and replayed challenge are safe
+ok 7 - RFID scan retry, conflicting event and replayed challenge are safe
+  ---
+  duration_ms: 5778.0652
+  type: 'test'
+  ...
+# Subtest: lost/unknown cards and spoofed device are rejected
+ok 8 - lost/unknown cards and spoofed device are rejected
+  ---
+  duration_ms: 4965.6623
+  type: 'test'
+  ...
+# Subtest: entry is pending until passage, duplicate vehicle cannot enter
+ok 9 - entry is pending until passage, duplicate vehicle cannot enter
+  ---
+  duration_ms: 5610.5456
+  type: 'test'
+  ...
+# Subtest: parking holds points, passage captures once, late duplicate does not charge again
+ok 10 - parking holds points, passage captures once, late duplicate does not charge again
+  ---
+  duration_ms: 5582.9021
+  type: 'test'
+  ...
+# Subtest: parking shortage does not reserve or open exit gate
+ok 11 - parking shortage does not reserve or open exit gate
+  ---
+  duration_ms: 5371.7367
+  type: 'test'
+  ...
+# Subtest: gate UNKNOWN keeps hold; manual no-passage resolution releases and fences old command
+ok 12 - gate UNKNOWN keeps hold; manual no-passage resolution releases and fences old command
+  ---
+  duration_ms: 6167.9298
+  type: 'test'
+  ...
+# Subtest: cantin requires approval, charges stock and wallet atomically
+ok 13 - cantin requires approval, charges stock and wallet atomically
+  ---
+  duration_ms: 5622.1079
+  type: 'test'
+  ...
+# Subtest: two payments racing cannot make wallet negative
+ok 14 - two payments racing cannot make wallet negative
+  ---
+  duration_ms: 8794.6663
+  type: 'test'
+  ...
+# Subtest: two stock reservations cannot oversell the last item
+ok 15 - two stock reservations cannot oversell the last item
+  ---
+  duration_ms: 6343.438
+  type: 'test'
+  ...
+# Subtest: refund is bounded, app role cannot mutate ledger, reconciliation balances
+ok 16 - refund is bounded, app role cannot mutate ledger, reconciliation balances
+  ---
+  duration_ms: 5484.8828
+  type: 'test'
+  ...
+# Subtest: PIN failures persist and lock after five wrong attempts
+ok 17 - PIN failures persist and lock after five wrong attempts
+  ---
+  duration_ms: 7964.245
+  type: 'test'
+  ...
+# Subtest: attendance needs lecturer-open session, respects roster/duplicates and closes absent
+ok 18 - attendance needs lecturer-open session, respects roster/duplicates and closes absent
+  ---
+  duration_ms: 8180.7526
+  type: 'test'
+  ...
+# Subtest: demo face failures and revoked consent cannot become identity
+ok 19 - demo face failures and revoked consent cannot become identity
+  ---
+  duration_ms: 6801.3624
+  type: 'test'
+  ...
+# Subtest: worker confirms mock top-up once and expires stock reservations
+ok 20 - worker confirms mock top-up once and expires stock reservations
+  ---
+  duration_ms: 6925.1934
+  type: 'test'
+  ...
+# Subtest: fee boundaries and CSV injection are explicit
+ok 21 - fee boundaries and CSV injection are explicit
+  ---
+  duration_ms: 5244.888
+  type: 'test'
+  ...
+# Subtest: prototype rows survive additive campus migration
+ok 22 - prototype rows survive additive campus migration
+  ---
+  duration_ms: 8264.5078
+  type: 'test'
+  ...
+# Subtest: demo terminals support face without pretending to be RFID hardware
+ok 23 - demo terminals support face without pretending to be RFID hardware
+  ---
+  duration_ms: 6878.3252
+  type: 'test'
+  ...
+# Subtest: wrong plate never opens an exit and identity is reusable after rollback
+ok 24 - wrong plate never opens an exit and identity is reusable after rollback
+  ---
+  duration_ms: 6441.5758
+  type: 'test'
+  ...
+# Subtest: low-confidence OCR needs an audited correction
+ok 25 - low-confidence OCR needs an audited correction
+  ---
+  duration_ms: 6877.7161
+  type: 'test'
+  ...
+# Subtest: full reversal permits an authorized new settlement cycle with one net fee
+ok 26 - full reversal permits an authorized new settlement cycle with one net fee
+  ---
+  duration_ms: 8778.3249
+  type: 'test'
+  ...
+# Subtest: monthly discount is server computed and zero fee creates no debit entry
+ok 27 - monthly discount is server computed and zero fee creates no debit entry
+  ---
+  duration_ms: 7855.4586
+  type: 'test'
+  ...
+# Subtest: revoking a card after identify prevents a new wallet authorization
+ok 28 - revoking a card after identify prevents a new wallet authorization
+  ---
+  duration_ms: 7357.9143
+  type: 'test'
+  ...
+# Subtest: biometric erasure blocks future fixture recognition
+ok 29 - biometric erasure blocks future fixture recognition
+  ---
+  duration_ms: 6778.5424
+  type: 'test'
+  ...
+# Subtest: expired order rejects checkout without charging or stock loss
+ok 30 - expired order rejects checkout without charging or stock loss
+  ---
+  duration_ms: 7098.8448
+  type: 'test'
+  ...
+# Subtest: closed session correction is scoped and retains audit history
+ok 31 - closed session correction is scoped and retains audit history
+  ---
+  duration_ms: 7430.5215
+  type: 'test'
+  ...
+# Subtest: last admin cannot be removed and device secrets are not cached in plaintext
+ok 32 - last admin cannot be removed and device secrets are not cached in plaintext
+  ---
+  duration_ms: 5587.9171
+  type: 'test'
+  ...
+# Subtest: Socket.IO authenticates and sends wallet events only to the owner
+ok 33 - Socket.IO authenticates and sends wallet events only to the owner
+  ---
+  duration_ms: 7680.1957
+  type: 'test'
+  ...
+# Subtest: final web login uses HttpOnly refresh cookie and CSRF protection
+ok 34 - final web login uses HttpOnly refresh cookie and CSRF protection
+  ---
+  duration_ms: 8532.616
+  type: 'test'
+  ...
+# Subtest: final context cancellation permits a safe new RFID scan context
+ok 35 - final context cancellation permits a safe new RFID scan context
+  ---
+  duration_ms: 6411.414
+  type: 'test'
+  ...
+# Subtest: final biometric delete and re-enroll only uses owned consent
+ok 36 - final biometric delete and re-enroll only uses owned consent
+  ---
+  duration_ms: 6872.784
+  type: 'test'
+  ...
+# Subtest: final device LCD exposes insufficient point without charging
+ok 37 - final device LCD exposes insufficient point without charging
+  ---
+  duration_ms: 6393.5509
+  type: 'test'
+  ...
+# Subtest: final provider ports accept capture scope without demo-only input parameters
+ok 38 - final provider ports accept capture scope without demo-only input parameters
+  ---
+  duration_ms: 6536.354
+  type: 'test'
+  ...
+# Subtest: final seed preserves revoked role and posted wallet balance
+ok 39 - final seed preserves revoked role and posted wallet balance
+  ---
+  duration_ms: 9177.6656
+  type: 'test'
+  ...
+# Subtest: wallet balance is read after acquiring the wallet lock
+ok 40 - wallet balance is read after acquiring the wallet lock
+  ---
+  duration_ms: 12169.8376
+  type: 'test'
+  ...
+1..40
+# tests 40
+# suites 0
+# pass 40
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 284578.8773

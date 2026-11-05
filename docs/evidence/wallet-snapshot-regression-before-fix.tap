@@ -1,0 +1,33 @@
+TAP version 13
+# Subtest: wallet balance is read after acquiring the wallet lock
+not ok 1 - wallet balance is read after acquiring the wallet lock
+  ---
+  duration_ms: 36604.3414
+  type: 'test'
+  location: '<USER_HOME>\\Downloads\\aiot-smart-classroom\\source\\backend\\test\\campus.test.ts:117:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+
+    '100000' !== '20000'
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '20000'
+  actual: '100000'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///<USER_HOME>/Downloads/aiot-smart-classroom/source/backend/test/campus.test.ts:128:68)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 75451.5708

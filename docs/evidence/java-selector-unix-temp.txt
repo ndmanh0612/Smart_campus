@@ -1,0 +1,1 @@
+PASS: Java NIO Selector.open

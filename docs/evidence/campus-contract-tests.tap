@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: demo face failures and revoked consent cannot become identity
+ok 1 - demo face failures and revoked consent cannot become identity
+  ---
+  duration_ms: 32931.2102
+  type: 'test'
+  ...
+# Subtest: demo terminals support face without pretending to be RFID hardware
+ok 2 - demo terminals support face without pretending to be RFID hardware
+  ---
+  duration_ms: 12956.2022
+  type: 'test'
+  ...
+# Subtest: final web login uses HttpOnly refresh cookie and CSRF protection
+ok 3 - final web login uses HttpOnly refresh cookie and CSRF protection
+  ---
+  duration_ms: 21223.4235
+  type: 'test'
+  ...
+# Subtest: final context cancellation permits a safe new RFID scan context
+ok 4 - final context cancellation permits a safe new RFID scan context
+  ---
+  duration_ms: 12359.9482
+  type: 'test'
+  ...
+# Subtest: final biometric delete and re-enroll only uses owned consent
+ok 5 - final biometric delete and re-enroll only uses owned consent
+  ---
+  duration_ms: 17261.366
+  type: 'test'
+  ...
+# Subtest: final device LCD exposes insufficient point without charging
+ok 6 - final device LCD exposes insufficient point without charging
+  ---
+  duration_ms: 13149.0527
+  type: 'test'
+  ...
+# Subtest: final provider ports accept capture scope without demo-only input parameters
+ok 7 - final provider ports accept capture scope without demo-only input parameters
+  ---
+  duration_ms: 12537.2304
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 181386.8365

@@ -1,0 +1,84 @@
+{
+  "review_date": "2026-11-05",
+  "scope": "Static documentation validation only; no implementation/hardware/runtime tests",
+  "status": "PASS",
+  "checks": [
+    "8 required files and UTF-8",
+    "review status and paired code fences",
+    "relative Markdown links",
+    "JSON example parsing",
+    "required database table names",
+    "provider names",
+    "hardware roles and parking states",
+    "9 roadmap phases and 32 planned test cases",
+    "README design entry point and parking quote/settlement cross-review"
+  ],
+  "files": [
+    {
+      "file": "source/docs/legacy-analysis.md",
+      "lines": 73,
+      "bytes": 10404,
+      "json_examples": 0,
+      "sha256": "07a3fa9570d23737c6616178427465b16f2cb19d780b45c622cbdfcb17bdfd18"
+    },
+    {
+      "file": "source/docs/requirements.md",
+      "lines": 94,
+      "bytes": 11568,
+      "json_examples": 0,
+      "sha256": "5cb51e7d34f4e66f1f10a7bd4fa349b74df87069b1f6ea67f09bb0bedf41308a"
+    },
+    {
+      "file": "source/docs/architecture.md",
+      "lines": 144,
+      "bytes": 13265,
+      "json_examples": 0,
+      "sha256": "6be7b624f0fd6d3d1dd63794c7abb96736684ba5546fe78f50eaa414f0229ccf"
+    },
+    {
+      "file": "source/docs/business-flows.md",
+      "lines": 124,
+      "bytes": 16382,
+      "json_examples": 0,
+      "sha256": "d1fe10f1f174c42226e0793423efdcfe9aee5331f241155b6ea3b36eed17b42f"
+    },
+    {
+      "file": "source/docs/database-design.md",
+      "lines": 228,
+      "bytes": 25934,
+      "json_examples": 0,
+      "sha256": "a3857debe5a9f628fe3a4e232f54133e4a78b82c4729a0026bfad3fdb67eba5e"
+    },
+    {
+      "file": "source/docs/api-contracts.md",
+      "lines": 244,
+      "bytes": 22579,
+      "json_examples": 5,
+      "sha256": "9b3b01912744736e8f1dbbeb873a263b412d596bcfd98a2c3d01c1c9e255a070"
+    },
+    {
+      "file": "source/docs/implementation-plan.md",
+      "lines": 197,
+      "bytes": 19407,
+      "json_examples": 0,
+      "sha256": "53bcc880210fe8c82b595757dccabd65925520c118e4c64f4f43747ffe58b516"
+    },
+    {
+      "file": "source/docs/camera-integration-guide.md",
+      "lines": 79,
+      "bytes": 10666,
+      "json_examples": 0,
+      "sha256": "7872f4b56a6fb6830f856b7c00f36c5d4f8dd44b1d768fe8897c095118a4d06c"
+    }
+  ],
+  "errors": [],
+  "not_checked": [
+    "Mermaid rendering",
+    "API execution",
+    "SQL migration execution",
+    "backend and Flutter tests",
+    "Docker Compose runtime",
+    "hardware compile/flash/scan",
+    "upstream commit hash re-fetch"
+  ]
+}

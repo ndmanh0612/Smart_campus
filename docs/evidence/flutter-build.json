@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "checked_at_utc": "2026-11-05T05:12:08.510179+00:00",
+  "flutter": "3.47.9",
+  "dart": "3.13.7",
+  "framework_revision": "c197ca5199e9ee5661e865596c9c07294dfab51c",
+  "android_api": 36,
+  "android_build_tools": "36.0.0",
+  "analyze": "PASS No issues found",
+  "widget_test": "PASS 1 test",
+  "web": "PASS release build",
+  "apk": "PASS debug universal APK",
+  "physical_camera": "NOT_RUN",
+  "reason": "Analyze, widget test, Web release and APK debug completed successfully; real camera tests remain NOT_RUN",
+  "web_entry_sha256": "1caeb9e50f0e10eb47c334af08387a42963a3933216991ca1c2509953ed0d877",
+  "apk_sha256": "02ef1f3cfc7ba5dd33d6ac113d68f216f82b66edd7694974f3bf14203087e52a",
+  "apk_bytes": 154524173,
+  "ndk": "28.2.13676358",
+  "apk_zip_integrity": "PASS",
+  "signing": "DEBUG, not production release signing"
+}

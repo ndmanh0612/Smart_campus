@@ -1,0 +1,27 @@
+{
+  "checked_at_utc": "2026-11-05T03:04:14.518960+00:00",
+  "postgres_integration": "14 PASS",
+  "typescript": "PASS",
+  "ai_unit": "5 PASS",
+  "ai_http": "4 PASS",
+  "source_files_inspected": 46,
+  "source_commit": "6f600226e3f0f383897ee5d2d607733e5a80c84f",
+  "code_reused": [
+    {
+      "file": "flutter\\template\\lib\\core\\widgets\\modern_button.dart",
+      "source": "https://raw.githubusercontent.com/ndmanh0612/tapcard-iotproject/6f600226e3f0f383897ee5d2d607733e5a80c84f/flutter/lib/core/widgets/modern_button.dart",
+      "sha256_local": "012f47bd5e4f2cb2f5c9689ef1e91ed0d14375609a4b50f4b1eaabd125bfa5ed"
+    },
+    {
+      "file": "flutter\\template\\lib\\core\\widgets\\modern_textfield.dart",
+      "source": "https://raw.githubusercontent.com/ndmanh0612/tapcard-iotproject/6f600226e3f0f383897ee5d2d607733e5a80c84f/flutter/lib/core/widgets/modern_textfield.dart",
+      "sha256_local": "ef69828ecbb12f684bf3d9830824b425a3d982a95aeb80d982952920a368db1c"
+    }
+  ],
+  "flutter_build": "NOT_RUN_SDK_MISSING",
+  "firmware_build_and_board": "NOT_RUN",
+  "face_accuracy_pad": "NOT_RUN",
+  "vps_and_restore": "NOT_RUN",
+  "full_week_acceptance": "NOT_COMPLETE",
+  "note": "Fresh rebuild evidence; historical Word report is not new execution evidence"
+}

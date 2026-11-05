@@ -1,0 +1,88 @@
+name: smartcampus-${DEPLOY_ENV:?set_env}
+services:
+  db:
+    image: postgres:17-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    environment:
+      POSTGRES_DB: smartcampus
+      POSTGRES_USER: schema_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set_secret}
+    volumes:
+      - db:/var/lib/postgresql/data
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U schema_owner -d smartcampus]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  bootstrap:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    command: [node, backend/bootstrap.ts]
+    environment: &campus-env
+      APP_ENV: development
+      DATABASE_URL: ${DATABASE_URL:?set_backend_role_url}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?set_owner_url}
+      RUNTIME_DATABASE_PASSWORD: ${RUNTIME_DATABASE_PASSWORD:?set_runtime_password}
+      CARD_HMAC_SECRET: ${CARD_HMAC_SECRET:?set_secret}
+      MOCK_CALLBACK_SECRET: ${MOCK_CALLBACK_SECRET:?set_secret}
+      SEED_PASSWORD: ${SEED_PASSWORD:?set_fixture_password}
+      SEED_PIN: ${SEED_PIN:?set_fixture_pin}
+      SEED_DEVICE_TOKEN: ${SEED_DEVICE_TOKEN:?set_device_token}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      HOST: 0.0.0.0
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [private]
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: development
+      DATABASE_URL: ${DATABASE_URL:?set_backend_role_url}
+      CARD_HMAC_SECRET: ${CARD_HMAC_SECRET:?set_secret}
+      MOCK_CALLBACK_SECRET: ${MOCK_CALLBACK_SECRET:?set_secret}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      RFID_MODE: REAL
+      FACE_PROVIDER: DEMO
+      LIVENESS_PROVIDER: DEMO
+      CAMERA_PROVIDER: DEMO
+      OCR_PROVIDER: DEMO
+      GATE_PROVIDER: SIMULATOR
+      PAYMENT_PROVIDER: MOCK
+      HOST: 0.0.0.0
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    networks: [private, edge]
+    restart: unless-stopped
+  proxy:
+    image: caddy:2@sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf
+    ports: ["8080:80", "8443:443"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set_domain}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../flutter/app/build/web:/srv:ro
+      - caddy:/data
+    networks: [edge]
+    depends_on:
+      backend:
+        condition: service_healthy
+  ai:
+    profiles: [future-camera]
+    build: ../ai-service
+    environment:
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
+    volumes:
+      - ../models:/app/models:ro
+    networks: [private]
+volumes:
+  db:
+  caddy:
+networks:
+  private:
+    internal: true
+  edge:

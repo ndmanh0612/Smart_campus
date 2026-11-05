@@ -1,0 +1,17 @@
+{
+  "sourceDatabase": "smartcampus_local",
+  "readiness": {
+    "ready": true
+  },
+  "backupSha256": "E9EC6A483EA9EF4A6A70E4327AC4513D186E76A621349CA7FF4F39FFA4C7AAF1",
+  "schema": {
+    "students": 2,
+    "transactions": 0,
+    "balancePoints": "0",
+    "migrations": "002-campus,003-operational-indexes"
+  },
+  "backupFile": ".work/smartcampus_restorecheck_6163e79ef82744518ccb6d26760d11fe.dump",
+  "checkedAt": "2026-11-05T13:18:32.4795913Z",
+  "scope": "Native local synthetic data; counts/balance/migration comparison, not production recovery SLA",
+  "status": "PASS"
+}

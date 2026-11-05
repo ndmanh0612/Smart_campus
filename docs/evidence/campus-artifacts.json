@@ -1,0 +1,22 @@
+{
+  "artifacts": [
+    {
+      "file": "SmartCampus_Web.zip",
+      "bytes": 14307613,
+      "sha256": "76c8fb8abb1d05b50aec0df6571307b8e043b87537d838b2df242367c037b5b9"
+    },
+    {
+      "file": "SmartCampus_debug.apk",
+      "bytes": 194644299,
+      "sha256": "e5d47d702365cf968e952f529f8dd0b6dbd5cfaf1c28e19f706127ca5064866c"
+    },
+    {
+      "file": "SmartCampus_Source.zip",
+      "bytes": 15165513,
+      "sha256": "a445b81eb8d278a13fbe0eb6d21376366d2490481705ead838a6a31385e0431b"
+    }
+  ],
+  "mode": "DEVELOPMENT_TEST_ONLY",
+  "hardware_test": "NOT_RUN",
+  "localCredentialScan": "PASS (generated long secrets; short PIN excluded to avoid numeric false positives)"
+}

@@ -1,0 +1,13 @@
+{
+  "validation": "PASS",
+  "schema_url": "https://raw.githubusercontent.com/compose-spec/compose-spec/3a4a6995e4a971f6173dff9130cb3e38e6738651/schema/compose-spec.json",
+  "schema_sha256": "d549057ebc2925f39f62799eab0db7b9e2c18b35b6c00595199116da3ed10e64",
+  "compose_file_sha256": "b1cd0d726afe02123daf4b036d568010faab88e46503e6b811eeeacc1779816b",
+  "checks": [
+    "Compose Specification JSON schema",
+    "No published DB/AI ports",
+    "Private internal network"
+  ],
+  "docker_config_or_build": "NOT_RUN_DOCKER_NOT_INSTALLED",
+  "vps_deployment": "NOT_RUN"
+}

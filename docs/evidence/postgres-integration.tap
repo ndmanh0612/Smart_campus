@@ -1,0 +1,94 @@
+TAP version 13
+# Subtest: valid RFID records once and changes no ledger
+ok 1 - valid RFID records once and changes no ledger
+  ---
+  duration_ms: 3515.7915
+  type: 'test'
+  ...
+# Subtest: same event returns identical stored response
+ok 2 - same event returns identical stored response
+  ---
+  duration_ms: 1217.2211
+  type: 'test'
+  ...
+# Subtest: same event different payload returns 409
+ok 3 - same event different payload returns 409
+  ---
+  duration_ms: 1331.771
+  type: 'test'
+  ...
+# Subtest: 20 distinct concurrent scans create one attendance
+ok 4 - 20 distinct concurrent scans create one attendance
+  ---
+  duration_ms: 3592.2675
+  type: 'test'
+  ...
+# Subtest: 20 concurrent identical retries create one event
+ok 5 - 20 concurrent identical retries create one event
+  ---
+  duration_ms: 1707.3315
+  type: 'test'
+  ...
+# Subtest: revoked and expired cards rejected
+ok 6 - revoked and expired cards rejected
+  ---
+  duration_ms: 1084.9676
+  type: 'test'
+  ...
+# Subtest: outside roster rejected
+ok 7 - outside roster rejected
+  ---
+  duration_ms: 1061.9557
+  type: 'test'
+  ...
+# Subtest: closed session rejects new event but old ACK survives
+ok 8 - closed session rejects new event but old ACK survives
+  ---
+  duration_ms: 1456.2743
+  type: 'test'
+  ...
+# Subtest: wrong device credential and spoofed device rejected
+ok 9 - wrong device credential and spoofed device rejected
+  ---
+  duration_ms: 967.8105
+  type: 'test'
+  ...
+# Subtest: malformed and oversized bodies rejected
+ok 10 - malformed and oversized bodies rejected
+  ---
+  duration_ms: 1091.4126
+  type: 'test'
+  ...
+# Subtest: readiness requires migration marker
+ok 11 - readiness requires migration marker
+  ---
+  duration_ms: 1495.6731
+  type: 'test'
+  ...
+# Subtest: active card unique and student account nonnegative
+ok 12 - active card unique and student account nonnegative
+  ---
+  duration_ms: 1299.8758
+  type: 'test'
+  ...
+# Subtest: ledger rejects unbalanced transaction, seals balanced posting
+ok 13 - ledger rejects unbalanced transaction, seals balanced posting
+  ---
+  duration_ms: 3082.1745
+  type: 'test'
+  ...
+# Subtest: database failure rolls back event and clean retry succeeds
+ok 14 - database failure rolls back event and clean retry succeeds
+  ---
+  duration_ms: 1862.9665
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 42177.6287

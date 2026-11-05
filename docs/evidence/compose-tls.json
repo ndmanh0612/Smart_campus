@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "url": "https://localhost:8443/readyz",
+  "caSha256": "37b5b93798a2627c4882206114d5ced90d523bbe0a711f9935a684737b8490db",
+  "checkHostname": true,
+  "verifyMode": "CERT_REQUIRED",
+  "trustInstalled": false,
+  "revocation": "NOT_EXERCISED; internal development CA",
+  "hardware": "NOT_RUN"
+}

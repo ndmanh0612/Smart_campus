@@ -1,0 +1,17 @@
+{
+  "checked_at_utc": "2026-11-05T03:32:58.693825+00:00",
+  "docx_sha256": "36916f20791b006a9637a3c06f7e2f851d3e7beb1eee2238d81ce84894119b0c",
+  "pages": 7,
+  "pages_visually_reviewed": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "layout": "PASS",
+  "rendering": "Microsoft Word PDF export and Poppler125dpi after standard renderer failed because soffice is absent",
+  "snapshot": "SDK installation not complete at this report render; regenerate after build result"
+}

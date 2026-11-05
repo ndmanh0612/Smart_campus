@@ -1,0 +1,56 @@
+[1/10] Material Fonts                                               4,7s
+[2/10] Gradle Wrapper                                              202ms
+[3/10] Flutter SDK
+  ├─ [1/5] sky_engine                                            2.721ms
+  ├─ [2/5] flutter_gpu                                             214ms
+  ├─ [3/5] flutter_patched_sdk                                      7,4s
+  ├─ [4/5] flutter_patched_sdk_product                              6,5s
+  └─ [5/5] windows-x64                                             30,6s
+[10/10] windows-x64/font-subset                                     5,2s
+[!] Flutter (Channel stable, 3.47.9, on Microsoft Windows [Version 10.0.26200.9711], locale vi-VN) [6,6s]
+    • Flutter version 3.47.9 on channel stable at <USER_HOME>\Downloads\aiot-smart-classroom\source\.work\toolchains\flutter
+    ! The flutter binary is not on your path. Consider adding <USER_HOME>\Downloads\aiot-smart-classroom\source\.work\toolchains\flutter\bin to your path.
+    ! The dart binary is not on your path. Consider adding <USER_HOME>\Downloads\aiot-smart-classroom\source\.work\toolchains\flutter\bin to your path.
+    • Upstream repository https://github.com/flutter/flutter.git
+    • Framework revision c197ca5199 (7 days ago), 2026-10-29 10:10:20 -0400
+    • Engine revision 89c39edfdf
+    • Dart version 3.13.7
+    • DevTools version 2.60.0
+    • Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android, enable-ios, cli-animations, enable-native-assets, enable-record-use, enable-swift-package-manager, omit-legacy-version-file, enable-lldb-debugging, enable-uiscene-migration
+    • If those were intentional, you can disregard the above warnings; however it is recommended to use "git" directly to perform update checks and upgrades.
+
+[√] Windows Version (Windows 11 or higher, 25H2, 2009) [11,0s]
+
+[!] Android toolchain - develop for Android devices (Android SDK version 36.0.0) [22,0s]
+    • Android SDK at <USER_HOME>\Downloads\aiot-smart-classroom\source\.work\toolchains\android-sdk
+    • Emulator version unknown
+    • Platform android-36, build-tools 36.0.0
+    • ANDROID_HOME = <USER_HOME>\Downloads\aiot-smart-classroom\source\.work\toolchains\android-sdk
+    • ANDROID_SDK_ROOT = <USER_HOME>\Downloads\aiot-smart-classroom\source\.work\toolchains\android-sdk
+    • Java binary at: C:\Program Files\Microsoft\jdk-21.0.1.12-hotspot\bin\java
+      This JDK is specified by the JAVA_HOME environment variable.
+      To manually set the JDK path, use: `flutter config --jdk-dir="path/to/jdk"`.
+    • Java version OpenJDK Runtime Environment Microsoft-8526870 (build 21.0.1+12-LTS)
+    ! Some Android licenses not accepted. To resolve this, run: flutter doctor --android-licenses
+
+[√] Chrome - develop for the web [2,1s]
+    • Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[!] Visual Studio - develop Windows apps (SQL Server Management Studio 22 22.9.2) [2,1s]
+    • Visual Studio at C:\Program Files\Microsoft SQL Server Management Studio 22\Release
+    • SQL Server Management Studio 22 version 22.9.12120.119
+    X Visual Studio is missing necessary components. Please re-run the Visual Studio installer for the "Desktop development with C++" workload, and include these components:
+        MSVC v142 - VS 2019 C++ x64/x86 build tools
+         - If there are multiple build tool versions available, install the latest
+        C++ CMake tools for Windows
+        Windows 10 SDK
+
+[√] Connected device (3 available) [6,2s]
+    • Windows (desktop) • windows • windows-x64    • Microsoft Windows [Version 10.0.26200.9711]
+    • Chrome (web)      • chrome  • web-javascript • Google Chrome 156.0.8078.80
+    • Edge (web)        • edge    • web-javascript • Microsoft Edge 156.0.4314.42
+
+[√] Network resources [2,3s]
+    • All expected network resources are available.
+
+! Doctor found issues in 3 categories.

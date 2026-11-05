@@ -1,0 +1,9 @@
+{
+  "status": "OFFLINE_CHECKS_PASS",
+  "imagesPinnedToInspectedDigests": true,
+  "installerPinnedToInstalledToolchain": true,
+  "archiveChecksumVerified": true,
+  "yamlParse": "PASS",
+  "dockerConfigAfterPin": "NOT_RUN: automatic approval review usage limit",
+  "composeRuntimeBeforePin": "PASS; same image digests"
+}

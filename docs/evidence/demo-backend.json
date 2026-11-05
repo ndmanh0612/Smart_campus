@@ -1,0 +1,64 @@
+{
+  "timestamp_utc": "2026-11-05T03:11:11.736Z",
+  "mode": "LOCAL_SIMULATED_DEVICE_NOT_PHYSICAL_RFID",
+  "session_id": "6b9f6a90-8b32-458b-895b-293e2279ae0f",
+  "checks": [
+    {
+      "step": 1,
+      "action": "Simulated valid card",
+      "actual": {
+        "status": 201,
+        "body": {
+          "event_id": "84211220-7446-4505-ab10-ff8e39afc67e",
+          "outcome": "RECORDED",
+          "attendance_id": "791810c8-9ef9-4666-8102-e68b246c0f7c",
+          "status": "PRESENT"
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "step": 2,
+      "action": "Lost ACK retry, same event",
+      "same_response": true,
+      "status": "PASS"
+    },
+    {
+      "step": 3,
+      "action": "20 additional concurrent simulated scans",
+      "attendance_count": 1,
+      "status": "PASS"
+    },
+    {
+      "step": 4,
+      "action": "Revoked card",
+      "actual": {
+        "status": 422,
+        "body": {
+          "event_id": "2470f2aa-1e9b-4cf1-bd7f-0ee6a55bace3",
+          "outcome": "CARD_NOT_ACTIVE"
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "step": 5,
+      "action": "Closed session",
+      "actual": {
+        "status": 422,
+        "body": {
+          "event_id": "5e545445-5872-48ec-8783-6c726459bfbd",
+          "outcome": "SESSION_NOT_OPEN"
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "step": 6,
+      "action": "Attendance does not post payment",
+      "ledger_transactions": 0,
+      "status": "PASS"
+    }
+  ],
+  "all_passed": true
+}

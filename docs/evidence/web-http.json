@@ -1,0 +1,25 @@
+{
+  "checks": [
+    {
+      "path": "/",
+      "http_status": 200,
+      "bytes": 1564
+    },
+    {
+      "path": "/main.dart.js",
+      "http_status": 200,
+      "bytes": 2156489
+    },
+    {
+      "path": "/flutter_bootstrap.js",
+      "http_status": 200,
+      "bytes": 13094
+    },
+    {
+      "path": "/version.json",
+      "http_status": 200,
+      "bytes": 100
+    }
+  ],
+  "scope": "HTTP static assets on localhost only; no camera or browser rendering verified"
+}

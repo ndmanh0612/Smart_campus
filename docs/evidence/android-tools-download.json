@@ -1,0 +1,7 @@
+{
+  "url": "https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip",
+  "sha256": "90ae805d20434428bffcb699c290860f19bb5f66a67e6b330067e3de801fb04a",
+  "license_authorized_by_user": true,
+  "installed": "<USER_HOME>\\Downloads\\aiot-smart-classroom\\source\\.work\\toolchains\\android-sdk\\cmdline-tools\\latest",
+  "sdk_platform_packages": "NOT_INSTALLED_YET"
+}

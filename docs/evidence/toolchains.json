@@ -1,0 +1,32 @@
+{
+  "checked_at_utc": "2026-11-05T04:11:05.175805+00:00",
+  "flutter": {
+    "frameworkVersion": "3.47.9",
+    "channel": "stable",
+    "repositoryUrl": "https://github.com/flutter/flutter.git",
+    "frameworkRevision": "c197ca5199e9ee5661e865596c9c07294dfab51c",
+    "frameworkCommitDate": "2026-10-29 10:10:20 -0400",
+    "engineRevision": "89c39edfdfae2949f6806e4a315c0c08522238b7",
+    "engineCommitDate": "2026-10-27 19:51:20.000Z",
+    "engineContentHash": "9e025265bef30b838c0c1b68cad19decf97048f2",
+    "engineBuildDate": "2026-10-28 03:22:45.983",
+    "dartSdkVersion": "3.13.7",
+    "devToolsVersion": "2.60.0",
+    "flutterVersion": "3.47.9"
+  },
+  "android_api": 36,
+  "build_tools": "36.0.0",
+  "adb": "37.0.1-15733141",
+  "jdk": "Microsoft21.0.1.12",
+  "gradle": "9.3.1",
+  "android_sdk_license": "Accepted by explicit user authorization; other licenses declined",
+  "global_path_changed": false,
+  "java_selector_probe": {
+    "default": "FAIL",
+    "java_io_tmpdir": "FAIL",
+    "ipv4_only": "FAIL",
+    "jdk_net_unixdomain_tmpdir": "PASS"
+  },
+  "physical_android": "NOT_AVAILABLE",
+  "physical_esp32": "NOT_AVAILABLE"
+}

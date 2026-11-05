@@ -1,0 +1,29 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.1.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  flutter_lints 5.0.0 (6.0.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  lints 5.1.1 (6.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.3 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Compiling lib\main.dart for the Web...
+Wasm dry run findings:
+Found incompatibilities with WebAssembly.
+
+file:///<USER_HOME>/Downloads/aiot-smart-classroom/source/.work/pub-cache/hosted/pub.dev/socket_io_common-3.1.1/lib/src/util/js_interop_type_adapter.dart 7:10 - invalid_runtime_check_with_js_interop_types lint violation: Runtime check between 'Object' and 'JSString' checks whether a Dart value is a JS interop type, which might not be platform-consistent. (7)
+
+Consider addressing these issues to enable wasm builds. See docs for more info: https://docs.flutter.dev/platform-integration/web/wasm
+
+Use --no-wasm-dry-run to disable these warnings.
+Expected to find fonts for (MaterialIcons, packages/cupertino_icons/CupertinoIcons), but found (MaterialIcons). This usually means you are referring to font families in an IconData class but not including them in the assets section of your pubspec.yaml, are missing the package that would include them, or are missing "uses-material-design: true".
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 13156 bytes (99.2% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Compiling lib\main.dart for the Web...                            425,9s
+√ Built build\web

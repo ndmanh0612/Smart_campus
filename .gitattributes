@@ -1,0 +1,6 @@
+# Preserve the bytes used by migration and firmware evidence checksums.
+database/** -text
+firmware/** -text
+
+# The Unix Gradle launcher must stay executable with LF line endings.
+flutter/app/android/gradlew text eol=lf

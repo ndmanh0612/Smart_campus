@@ -1,0 +1,241 @@
+{
+  "checked_at": "2026-11-05T13:12:22.840932+00:00",
+  "repository": "ndmanh0612/tapcard-iotproject",
+  "pinned_commit": "6f600226e3f0f383897ee5d2d607733e5a80c84f",
+  "files": [
+    {
+      "path": "README.md",
+      "status": "PASS",
+      "sha256": "fc18ba27a6f8b0114b5965ef85113c0a99d5245d2fe10d8a3b0051be7621d32f"
+    },
+    {
+      "path": "arduino/arduino.ino",
+      "status": "PASS",
+      "sha256": "13469cb319c6a62a910a3df019a418aec25842518668fe674ef089c5c2475288"
+    },
+    {
+      "path": "express/package.json",
+      "status": "PASS",
+      "sha256": "6bb93ca215f5ee0987428b9a7d056776a2326b3e763f4bb467d4fd9cfee2191c"
+    },
+    {
+      "path": "express/src/configurations/auth.config.ts",
+      "status": "PASS",
+      "sha256": "0782b5416af4ccd019483a00104513483e8777cd6d3c1838486b34512a46a503"
+    },
+    {
+      "path": "express/src/configurations/db.config.ts",
+      "status": "PASS",
+      "sha256": "13008fcd01c94c93029f83c1599f1d39368167e56d4e5ed52a4c0097e32811f2"
+    },
+    {
+      "path": "express/src/configurations/env.config.ts",
+      "status": "PASS",
+      "sha256": "0827a57c66515a8883137e77b1f3208e9ed6062706ebd5d8a4271afc69eb6df7"
+    },
+    {
+      "path": "express/src/controllers/attendance.controller.ts",
+      "status": "PASS",
+      "sha256": "baa6de1374446ff01b4676243db9cfc417675b71c5138856792b3157878d9a70"
+    },
+    {
+      "path": "express/src/controllers/auth.controller.ts",
+      "status": "PASS",
+      "sha256": "e3103d3f70c818b7a23b4383595c564c7060e394c035570ed6d3e3d0c856337e"
+    },
+    {
+      "path": "express/src/controllers/generic.controller.ts",
+      "status": "PASS",
+      "sha256": "bafbdc3d664d28592c754765fc9353a3b6b6a1a007f91f288d6483c391a8723d"
+    },
+    {
+      "path": "express/src/controllers/reader.controller.ts",
+      "status": "PASS",
+      "sha256": "588f61a28ad3ccf7e3345939fcd80a98c5c405e7eda9c782457617439f490f8a"
+    },
+    {
+      "path": "express/src/controllers/tag.controller.ts",
+      "status": "PASS",
+      "sha256": "2999f475b973cfee327f170d706a1d13ce986dfb9f45eae8e59f2dc00d5cf59c"
+    },
+    {
+      "path": "express/src/controllers/user.controller.ts",
+      "status": "PASS",
+      "sha256": "43e2c30a35ef3224a318e0e28c637da0a9f315f4fcab2d30198c49e84c8c0e29"
+    },
+    {
+      "path": "express/src/index.ts",
+      "status": "PASS",
+      "sha256": "175da211c6e19d4063f87ae519e7109ce784ffd205eb834566075fe560296639"
+    },
+    {
+      "path": "express/src/middleware/auth.middleware.ts",
+      "status": "PASS",
+      "sha256": "d36c22bd8d9824121827b23ee7b8135eaba453938969ab29908caa2658b6aaae"
+    },
+    {
+      "path": "express/src/models/access.model.ts",
+      "status": "PASS",
+      "sha256": "58098ab8b05a7e9f432ab58db139a9955372a185f33ed5864e4bc114cc298cc2"
+    },
+    {
+      "path": "express/src/models/attendance.model.ts",
+      "status": "PASS",
+      "sha256": "f91fbb33d780e3e7a3b56ff3cfab361fe0905d7f7fdc5e51a229b157ab07b0b4"
+    },
+    {
+      "path": "express/src/models/reader.model.ts",
+      "status": "PASS",
+      "sha256": "807f799a045b29561f0e4dde51d6b7ac854cd089f637d8e9f93457debde99d5d"
+    },
+    {
+      "path": "express/src/models/tag.model.ts",
+      "status": "PASS",
+      "sha256": "321472f4eb44cb57fce89c19670df3c7f7796488f63dd9dd1b91c03a94482c8e"
+    },
+    {
+      "path": "express/src/models/track.model.ts",
+      "status": "PASS",
+      "sha256": "d9a8175e8bd3eb4f0b4d1fa707b73e20aa2cc6d55291cbdd90de1bd79c94d629"
+    },
+    {
+      "path": "express/src/models/user.model.ts",
+      "status": "PASS",
+      "sha256": "8b2453c3f244aa5f999d0e4eeb97177f95cc07124b408a6a42b85e3087588e7b"
+    },
+    {
+      "path": "express/src/routes/attendance.router.ts",
+      "status": "PASS",
+      "sha256": "d8f3daf64e88dded0e30e85c49c62c01992827f23c8963946e3ebf66d2c8c007"
+    },
+    {
+      "path": "express/src/routes/auth.router.ts",
+      "status": "PASS",
+      "sha256": "923cf2fd7a2dfd9385d661ce8e79a136032263724af8c5c34d3dce13b7ce49c1"
+    },
+    {
+      "path": "express/src/routes/reader.router.ts",
+      "status": "PASS",
+      "sha256": "7ecdfc063e0bccd908d583de89b65a1b7ea79edd09094a3372bee710f1017476"
+    },
+    {
+      "path": "express/src/routes/tag.router.ts",
+      "status": "PASS",
+      "sha256": "9c452897a21ae1551c9d59b656ef390df8c921a6d4d56b730373d136e596437f"
+    },
+    {
+      "path": "express/src/routes/user.router.ts",
+      "status": "PASS",
+      "sha256": "dc55d05d660c9f140ad719c878bdcdfe46b7e2e6baa482bd63138051ccbcf0ad"
+    },
+    {
+      "path": "flutter/android/app/build.gradle.kts",
+      "status": "PASS",
+      "sha256": "1c7288d0e1c54755100205210d36ec0a54af78549091ba91f656418aa415d972"
+    },
+    {
+      "path": "flutter/android/app/src/main/AndroidManifest.xml",
+      "status": "PASS",
+      "sha256": "6d72e9c457a9a6e2fc160eeee17815655456f0552dab70403ab441bfed0ab98c"
+    },
+    {
+      "path": "flutter/lib/core/constants.dart",
+      "status": "PASS",
+      "sha256": "964ea27f135383fbaff07fef8dc860723f4559349c881bc2ee2f6e72f7a802d9"
+    },
+    {
+      "path": "flutter/lib/core/widgets/modern_button.dart",
+      "status": "PASS",
+      "sha256": "942ee597c2ecbf0e1053ee423b35adbfbcd04e84fcbab35aefd1825b45b5da2e"
+    },
+    {
+      "path": "flutter/lib/core/widgets/modern_textfield.dart",
+      "status": "PASS",
+      "sha256": "ee529d01dd339113279f15870e7427d7e3e2f65567ccb0f8a22d0cb981a1cb5d"
+    },
+    {
+      "path": "flutter/lib/main.dart",
+      "status": "PASS",
+      "sha256": "375f518fdc08cd46de2adea6888f27222fba278f6ab4dc53eac031a5679f7359"
+    },
+    {
+      "path": "flutter/lib/model/attendance.model.dart",
+      "status": "PASS",
+      "sha256": "14519d970ec0aa663ea2deb1096a943452bd4e302f6ae34384a10bcc44f6d7bd"
+    },
+    {
+      "path": "flutter/lib/model/reader.model.dart",
+      "status": "PASS",
+      "sha256": "a6a887c4e2f8d085fd13d6dbc9889162e6afb3ff18dc33b3c3b0394525a879d7"
+    },
+    {
+      "path": "flutter/lib/model/rfid.model.dart",
+      "status": "PASS",
+      "sha256": "20afb35395987206112de9c4cd8632a0920b7c1da824d48b6231fb1c4be76fa3"
+    },
+    {
+      "path": "flutter/lib/model/tag.model.dart",
+      "status": "PASS",
+      "sha256": "6a6cf11bef6252fc5d0d4bca0542d7e88486e1416840a3bab507703203526faa"
+    },
+    {
+      "path": "flutter/lib/model/theme.model.dart",
+      "status": "PASS",
+      "sha256": "6335a5e9a8f9047ddbcc362bf1e7c91534f5ccf68bd7bead84b8590c8da2bef4"
+    },
+    {
+      "path": "flutter/lib/model/user.model.dart",
+      "status": "PASS",
+      "sha256": "a8f555a0199b6ff49222bad3222ba498e6b7586e1e2bdc040883ed9eeb517ede"
+    },
+    {
+      "path": "flutter/lib/screen/attendance_screen.dart",
+      "status": "PASS",
+      "sha256": "26355f21a1ffea186b308f1b6b654027f121630c6be3e3d86ed1e40d2fd4b443"
+    },
+    {
+      "path": "flutter/lib/screen/home_screen.dart",
+      "status": "PASS",
+      "sha256": "58ea08205b8eade7a577761703f0787abaeb031621e47a9af880a35fd8c4b4d4"
+    },
+    {
+      "path": "flutter/lib/screen/login_screen.dart",
+      "status": "PASS",
+      "sha256": "b9a3efea793bb7a6723e7f2c03300ec582997d3e84428b6fc9ac2b08259cab7b"
+    },
+    {
+      "path": "flutter/lib/screen/register_screen.dart",
+      "status": "PASS",
+      "sha256": "47ce6c6afd5f4b51df6855dfecd4e0cd0b340a20e7e08d94121577b7f35c4eaf"
+    },
+    {
+      "path": "flutter/lib/screen/tab_attendance_form.dart",
+      "status": "PASS",
+      "sha256": "d6d6469abb5fcba10f66955c516d00a81e692094895d98abd1d84242f3538f84"
+    },
+    {
+      "path": "flutter/lib/screen/tab_history.dart",
+      "status": "PASS",
+      "sha256": "f7e4bfa05bd27bec7631437e753c7b0a3550a0fe9ef13b9294a951bc19c608f6"
+    },
+    {
+      "path": "flutter/lib/screen/tab_profile.dart",
+      "status": "PASS",
+      "sha256": "aa340c9f110e2786c13741f799272bc2e442e5793177795813e4d30c92d3d3f6"
+    },
+    {
+      "path": "flutter/lib/screen/tab_tag_binding.dart",
+      "status": "PASS",
+      "sha256": "d2a64e90f5dcc1636efccc4bbbac3c1da64ddd03c581e755576ebd1884c0b264"
+    },
+    {
+      "path": "flutter/pubspec.yaml",
+      "status": "PASS",
+      "sha256": "208b9e5b796fc6f89096fd5f39e984a05a85a8d2a1462dd1655d3a8107577495"
+    }
+  ],
+  "raw_source_written": false,
+  "upstream_runtime_test": "NOT_RUN",
+  "default_branch_head": "6f600226e3f0f383897ee5d2d607733e5a80c84f",
+  "pinned_is_current_head": true
+}

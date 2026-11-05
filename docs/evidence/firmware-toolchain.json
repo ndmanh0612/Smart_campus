@@ -1,0 +1,13 @@
+{
+  "arduino_cli": "v1.5.1",
+  "archive_url": "https://github.com/arduino/arduino-cli/releases/download/v1.5.1/arduino-cli_1.5.1_Windows_64bit.zip",
+  "sha256": "fabe42e0eb04d00e776a66178299ff95a46c623dbc260f997e58fd514853dd40",
+  "esp32_core": "3.3.12",
+  "libraries": {
+    "MFRC522": "1.4.12",
+    "LiquidCrystal I2C": "1.1.2",
+    "ArduinoJson": "7.4.3"
+  },
+  "reference_fqbn": "esp32:esp32:esp32",
+  "hardware_test": "NOT_RUN"
+}

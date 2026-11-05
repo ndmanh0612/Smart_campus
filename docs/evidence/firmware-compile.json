@@ -1,0 +1,9 @@
+{
+  "source_sha256": "6F1BC604FE5B4A107FFA08D5AD629651E3AA885D98C333822B9EBCF5C5B9910C",
+  "provisioned": false,
+  "note": "Compile only; no upload/reader/LCD test",
+  "fqbn": "esp32:esp32:esp32",
+  "hardware_test": "NOT_RUN",
+  "status": "PASS",
+  "compiler_log": ".work/firmware-compile.log"
+}

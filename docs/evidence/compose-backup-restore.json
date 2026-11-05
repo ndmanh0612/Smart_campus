@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "schema": {
+    "transactions": 4,
+    "ledgerEntries": 8,
+    "unbalancedTransactions": 0,
+    "studentPoints": "82000",
+    "completedOrders": 1,
+    "completedParking": 1
+  },
+  "backupSha256": "F43F2A64138C673537E1CA2DA162F4D2D40D581F75E0653E4E8CA634E91CBFD2",
+  "checkedAt": "2026-11-05T13:48:23.1449803Z",
+  "backupFile": ".work/smartcampus_restorecheck_a64744e80d0c4eeea4cde024002ea218.dump",
+  "scope": "Synthetic Compose data; isolated restore and aggregate ledger/domain comparison"
+}
