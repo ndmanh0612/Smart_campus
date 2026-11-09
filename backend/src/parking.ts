@@ -1,7 +1,7 @@
 import { audit, bool, choice, expected, fields, id, notify, one, optional, points, reject, requirePermission, str, uuid, type Actor, type Db, type Result } from './platform.ts';
 import { consumeIdentity } from './devices.ts';
 import { normalizePlate } from './providers.ts';
-import { authorize, capture, post, voidPayment } from './wallet.ts';
+import { authorize, authorizeDirect, capture, post, voidPayment } from './wallet.ts';
 export function calculateFee(policy: {
     mode: string;
     unit_points: string;
@@ -31,17 +31,53 @@ async function plateObservation(db: Db, observationId: string, contextId: string
         reject(422, 'PLATE_UNREADABLE', 'Chưa có biển số hợp lệ.');
     return { observation, plate: normalized as string };
 }
+async function parkingPlate(db: Db, body: Record<string, unknown>, contextId: string) {
+    if ((body.plate === undefined) === (body.ocrObservationId === undefined))
+        reject(422, 'PARKING_PLATE_REQUIRED', 'Cần nhập một biển số đã đối chiếu.');
+    if (body.plate !== undefined)
+        return { plate: normalizePlate(str(body.plate, 30)), evidenceId: null };
+    const ocr = await plateObservation(db, uuid(body.ocrObservationId), contextId);
+    return { plate: ocr.plate, evidenceId: ocr.observation.id };
+}
 async function vehicleAllowed(db: Db, studentId: string, vehicleId: string) {
     if (!await optional(db, 'SELECT 1 FROM vehicle_authorizations a JOIN vehicles v ON v.id=a.vehicle_id WHERE a.vehicle_id=$1 AND a.student_id=$2 AND a.active AND v.active AND a.valid_from<=now() AND (a.valid_to IS NULL OR a.valid_to>now())', [vehicleId, studentId]))
         reject(422, 'VEHICLE_NOT_AUTHORIZED', 'Sinh viên không có quyền sử dụng xe này.');
 }
 async function command(db: Db, session: Record<string, any>, deviceId: string, phase: string) { const commandId = id(); await db.query("INSERT INTO gate_commands VALUES($1,$2,$3,$4,$5,'QUEUED',now()+interval '30 seconds',now())", [commandId, session.id, deviceId, phase, session.settlement_cycle]); return commandId; }
 export async function entry(db: Db, a: Actor, body: unknown) {
-    const b = fields(body, ['identityAssertionId', 'ocrObservationId']);
+    const b = fields(body, ['identityAssertionId', 'plate', 'ocrObservationId'], ['identityAssertionId']);
     const identity = await consumeIdentity(db, uuid(b.identityAssertionId), 'PARKING_ENTRY');
+
+    // ANTI-PASSBACK: Mỗi sinh viên chỉ được gửi tối đa 1 xe trong bãi
+    const existingSession = await optional(
+        db,
+        `SELECT ps.id, ps.entry_plate, ps.status, u.name, s.student_code
+         FROM campus.parking_sessions ps
+         JOIN campus.students s ON s.id = ps.student_id
+         JOIN campus.users u ON u.id = s.user_id
+         WHERE ps.student_id = $1
+           AND ps.status IN ('PENDING_ENTRY', 'ACTIVE', 'EXIT_PENDING', 'EXCEPTION')
+         LIMIT 1`,
+        [identity.student_id]
+    );
+    if (existingSession) {
+        reject(
+            422,
+            'VEHICLE_ALREADY_IN_LOT',
+            `Sinh viên ${existingSession.name} (${existingSession.student_code}) hiện đã có xe đang gửi trong bãi (Biển số: ${existingSession.entry_plate ?? 'Đang xử lý'}). Không thể dùng thẻ hoặc khuôn mặt này để gửi thêm xe!`
+        );
+    }
+
     const lotId = identity.parking_lot_id;
-    const ocr = await plateObservation(db, uuid(b.ocrObservationId), identity.context_id);
-    const vehicle = await one(db, 'SELECT * FROM vehicles WHERE normalized_plate=$1 AND active FOR UPDATE', [ocr.plate]);
+    const { plate, evidenceId } = await parkingPlate(db, b, identity.context_id);
+    let vehicle = await optional(db, 'SELECT * FROM vehicles WHERE normalized_plate=$1 FOR UPDATE', [plate]);
+    if (!vehicle) {
+        const vehicleId = id();
+        const rawPlate = (b.plate && typeof b.plate === 'string') ? (b.plate as string).trim() : plate;
+        await db.query("INSERT INTO vehicles(id,normalized_plate,raw_plate,vehicle_type,active) VALUES($1,$2,$3,'MOTORCYCLE',true)", [vehicleId, plate, rawPlate]);
+        vehicle = { id: vehicleId, normalized_plate: plate, raw_plate: rawPlate, vehicle_type: 'MOTORCYCLE', active: true };
+    }
+    await db.query("INSERT INTO vehicle_authorizations(vehicle_id,student_id,active) VALUES($1,$2,true) ON CONFLICT(vehicle_id,student_id) DO UPDATE SET active=true, valid_to=NULL", [vehicle.id, identity.student_id]);
     await vehicleAllowed(db, identity.student_id, vehicle.id);
     const lot = await one(db, 'SELECT * FROM parking_lots WHERE id=$1 FOR UPDATE', [lotId]);
     const occupancy = await one(db, 'SELECT count(*)::integer AS count FROM parking_occupancies WHERE lot_id=$1', [lotId]);
@@ -49,16 +85,16 @@ export async function entry(db: Db, a: Actor, body: unknown) {
         reject(422, 'PARKING_FULL', 'Bãi xe đã đủ chỗ.');
     const policy = await one(db, 'SELECT * FROM parking_fee_policies WHERE lot_id=$1 AND active', [lotId]);
     const sessionId = id();
-    await db.query("INSERT INTO parking_sessions(id,student_id,vehicle_id,lot_id,policy_id,status,entry_plate,entry_source) VALUES($1,$2,$3,$4,$5,'PENDING_ENTRY',$6,$7)", [sessionId, identity.student_id, vehicle.id, lotId, policy.id, ocr.plate, identity.source]);
+    await db.query("INSERT INTO parking_sessions(id,student_id,vehicle_id,lot_id,policy_id,status,entry_plate,entry_source) VALUES($1,$2,$3,$4,$5,'PENDING_ENTRY',$6,$7)", [sessionId, identity.student_id, vehicle.id, lotId, policy.id, plate, identity.source]);
     await db.query('INSERT INTO parking_occupancies VALUES($1,$2,$3)', [vehicle.id, sessionId, lotId]);
     const commandId = await command(db, { id: sessionId, settlement_cycle: 1 }, identity.device_id, 'ENTRY');
     await db.query('UPDATE identity_assertions SET resource_id=$2 WHERE id=$1', [identity.id, sessionId]);
-    await db.query("INSERT INTO parking_events(id,session_id,type,actor_id,source,evidence_ref) VALUES($1,$2,'ENTRY_REQUESTED',$3,$4,$5)", [id(), sessionId, a.id, identity.source, ocr.observation.id]);
+    await db.query("INSERT INTO parking_events(id,session_id,type,actor_id,source,evidence_ref) VALUES($1,$2,'ENTRY_REQUESTED',$3,$4,$5)", [id(), sessionId, a.id, identity.source, evidenceId]);
     await audit(db, a, 'PARKING_ENTRY_REQUESTED', sessionId);
-    return { id: sessionId, status: 'PENDING_ENTRY', commandId, source: identity.source, plate: ocr.plate };
+    return { id: sessionId, status: 'PENDING_ENTRY', commandId, source: identity.source, plate };
 }
 export async function exitQuote(db: Db, a: Actor, sessionId: string, body: unknown) {
-    const b = fields(body, ['identityAssertionId', 'ocrObservationId', 'expectedVersion']);
+    const b = fields(body, ['identityAssertionId', 'plate', 'ocrObservationId', 'expectedVersion'], ['identityAssertionId', 'expectedVersion']);
     const session = await one(db, 'SELECT * FROM parking_sessions WHERE id=$1 FOR UPDATE', [sessionId]);
     expected(session.version, b.expectedVersion);
     if (session.status !== 'ACTIVE')
@@ -66,8 +102,8 @@ export async function exitQuote(db: Db, a: Actor, sessionId: string, body: unkno
     const identity = await consumeIdentity(db, uuid(b.identityAssertionId), 'PARKING_EXIT', sessionId);
     if (identity.student_id !== session.student_id)
         reject(403, 'PARKING_OWNER_MISMATCH', 'Sinh viên không phải người đứng tên lượt gửi xe.');
-    const ocr = await plateObservation(db, uuid(b.ocrObservationId), identity.context_id);
-    if (ocr.plate !== session.entry_plate)
+    const { plate, evidenceId } = await parkingPlate(db, b, identity.context_id);
+    if (plate !== session.entry_plate)
         reject(422, 'PLATE_MISMATCH', 'Biển số ra không khớp biển số vào.');
     await vehicleAllowed(db, identity.student_id, session.vehicle_id);
     const policy = await one(db, 'SELECT * FROM parking_fee_policies WHERE id=$1', [session.policy_id]);
@@ -86,8 +122,8 @@ export async function exitQuote(db: Db, a: Actor, sessionId: string, body: unkno
         await db.query('INSERT INTO parking_payments VALUES($1,$2,$3)', [paymentId, sessionId, quoteId]);
         await notify(db, session.student_id, 'payment.changed', `Phí gửi xe cần xác nhận ${amount} point.`, paymentId);
     }
-    await db.query('UPDATE parking_sessions SET exit_plate=$2 WHERE id=$1', [sessionId, ocr.plate]);
-    await db.query("INSERT INTO parking_events(id,session_id,type,actor_id,source,evidence_ref,metadata) VALUES($1,$2,'EXIT_QUOTED',$3,$4,$5,$6)", [id(), sessionId, a.id, identity.source, ocr.observation.id, { quoteId, identityId: identity.id }]);
+    await db.query('UPDATE parking_sessions SET exit_plate=$2 WHERE id=$1', [sessionId, plate]);
+    await db.query("INSERT INTO parking_events(id,session_id,type,actor_id,source,evidence_ref,metadata) VALUES($1,$2,'EXIT_QUOTED',$3,$4,$5,$6)", [id(), sessionId, a.id, identity.source, evidenceId, { quoteId, identityId: identity.id }]);
     return { quoteId, paymentId, amountPoints: amount, settlementCycle: session.settlement_cycle, sourceVersion: session.version, approvalRequired: amount !== '0', expiresIn: 120 };
 }
 export async function exitAuthorize(db: Db, a: Actor, sessionId: string, body: unknown) {
@@ -102,7 +138,10 @@ export async function exitAuthorize(db: Db, a: Actor, sessionId: string, body: u
     const event = await one(db, "SELECT a.device_id FROM parking_events e JOIN identity_assertions a ON a.id=(e.metadata->>'identityId')::uuid WHERE e.session_id=$1 AND e.type='EXIT_QUOTED' AND e.metadata->>'quoteId'=$2", [sessionId, quote.id]);
     if (quote.amount_points !== '0') {
         const p = await one(db, 'SELECT * FROM payments WHERE quote_id=$1 FOR UPDATE', [quote.id]);
-        await authorize(db, p, session.version, uuid(b.approvalId));
+        if (b.approvalId)
+            await authorize(db, p, session.version, uuid(b.approvalId));
+        else
+            await authorizeDirect(db, p);
     }
     const commandId = await command(db, session, event.device_id, 'EXIT');
     await db.query("UPDATE parking_sessions SET status='EXIT_PENDING',version=version+1 WHERE id=$1", [sessionId]);
@@ -171,6 +210,7 @@ export async function gateEvent(db: Db, a: Actor | null, commandId: string, scen
             }
             await db.query("UPDATE parking_sessions SET status='COMPLETED',exited_at=clock_timestamp(),version=version+1 WHERE id=$1", [session.id]);
             await db.query('DELETE FROM parking_occupancies WHERE session_id=$1', [session.id]);
+            await db.query('DELETE FROM vehicle_authorizations WHERE vehicle_id=$1 AND student_id=$2', [session.vehicle_id, session.student_id]);
         }
         await db.query("UPDATE gate_commands SET status='PASSAGE_CONFIRMED' WHERE id=$1", [commandId]);
         await notify(db, session.student_id, 'parking.session.changed', cmd.phase === 'ENTRY' ? 'Đã xác nhận xe vào bãi mô phỏng.' : 'Đã xác nhận xe ra bãi và quyết toán point.', session.id);

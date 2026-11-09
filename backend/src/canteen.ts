@@ -1,6 +1,6 @@
-import { audit, expected, fields, id, integer, notify, one, optional, reject, str, uuid, type Actor, type Db } from './platform.ts';
+import { audit, expected, fields, id, integer, notify, one, optional, reject, str, uidHash, uuid, type Actor, type Db } from './platform.ts';
 import { consumeIdentity } from './devices.ts';
-import { authorize, capture, voidPayment } from './wallet.ts';
+import { authorize, authorizeDirect, capture, voidPayment } from './wallet.ts';
 export async function createOrder(db: Db, a: Actor, body: unknown) {
     const b = fields(body, ['items']);
     if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 50)
@@ -87,4 +87,85 @@ export async function checkout(db: Db, a: Actor, orderId: string, body: unknown)
     await db.query("UPDATE orders SET status='COMPLETED',version=version+1,completed_at=now() WHERE id=$1", [orderId]);
     await audit(db, a, 'CANTEEN_PAID', orderId);
     return { orderId, status: 'COMPLETED', transactionId: receipt.id, amountPoints: order.total_points };
+}
+
+export async function directCheckout(db: Db, a: Actor, orderId: string, body: unknown, cardKey?: string) {
+    const b = body as Record<string, any>;
+    const order = await one(db, 'SELECT * FROM orders WHERE id=$1 FOR UPDATE', [orderId]);
+    if (order.status === 'COMPLETED')
+        return { orderId, status: 'COMPLETED', transaction: await one(db, 'SELECT t.id FROM wallet_transactions t JOIN payments p ON p.id=t.payment_id WHERE p.order_id=$1', [orderId]) };
+    if (order.status !== 'AWAITING_PAYMENT' || new Date(order.expires_at) < new Date())
+        reject(422, 'RESERVATION_EXPIRED', 'Đơn không còn chờ thanh toán hoặc đã hết hạn.');
+
+    let studentId: string | null = null;
+    let cardId: string | null = null;
+    let assertionId: string | null = null;
+
+    if (b.identityAssertionId) {
+        const identity = await consumeIdentity(db, uuid(b.identityAssertionId), 'CANTEEN', orderId);
+        studentId = identity.student_id;
+        cardId = identity.card_id ?? null;
+        assertionId = identity.id;
+    } else if (b.rfidUid && cardKey) {
+        const rawUid = str(b.rfidUid, 50).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+        const digest = uidHash(rawUid, cardKey);
+        const card = await optional(db, "SELECT c.*, s.active, u.status AS user_status FROM rfid_cards c JOIN students s ON s.id=c.student_id JOIN users u ON u.id=s.user_id WHERE c.uid_hmac=$1 AND c.status='ACTIVE'", [digest]);
+        if (!card || !card.active || card.user_status !== 'ACTIVE')
+            reject(422, 'CARD_NOT_ACTIVE', 'Thẻ không hợp lệ hoặc sinh viên không còn hoạt động.');
+        studentId = card.student_id;
+        cardId = card.id;
+    } else if (b.cardId) {
+        const card = await one(db, "SELECT c.*, s.active, u.status AS user_status FROM rfid_cards c JOIN students s ON s.id=c.student_id JOIN users u ON u.id=s.user_id WHERE c.id=$1 AND c.status='ACTIVE'", [uuid(b.cardId)]);
+        if (!card.active || card.user_status !== 'ACTIVE')
+            reject(422, 'CARD_NOT_ACTIVE', 'Thẻ không hợp lệ hoặc sinh viên không còn hoạt động.');
+        studentId = card.student_id;
+        cardId = card.id;
+    } else if (b.studentId) {
+        const student = await one(db, "SELECT s.*, u.status AS user_status FROM students s JOIN users u ON u.id=s.user_id WHERE s.id=$1", [uuid(b.studentId)]);
+        if (!student.active || student.user_status !== 'ACTIVE')
+            reject(422, 'STUDENT_INACTIVE', 'Sinh viên không còn hoạt động.');
+        studentId = student.id;
+        const card = await optional(db, "SELECT id FROM rfid_cards WHERE student_id=$1 AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1", [studentId]);
+        cardId = card?.id ?? null;
+    } else {
+        reject(400, 'STUDENT_OR_CARD_REQUIRED', 'Cần quẹt thẻ RFID hoặc chọn thẻ sinh viên để thanh toán trực tiếp.');
+    }
+
+    if (!assertionId) {
+        let device = await optional(db, "SELECT id, config_version FROM devices WHERE role='CANTEEN_POS' AND active LIMIT 1");
+        if (!device) {
+            device = await one(db, "SELECT id, config_version FROM devices WHERE active LIMIT 1");
+        }
+        const contextId = id();
+        await db.query(
+            "INSERT INTO device_contexts(id,device_id,purpose,order_id,config_version,status,expires_at) VALUES($1,$2,'CANTEEN',$3,$4,'CONSUMED',now()+interval '15 minutes')",
+            [contextId, device.id, orderId, device.config_version]
+        );
+        assertionId = id();
+        await db.query(
+            "INSERT INTO identity_assertions(id,student_id,device_id,context_id,source,card_id,expires_at,consumed_at) VALUES($1,$2,$3,$4,'REAL',$5,now()+interval '15 minutes',now())",
+            [assertionId, studentId, device.id, contextId, cardId]
+        );
+    }
+
+    const paymentId = id();
+    await db.query('UPDATE orders SET student_id=$2 WHERE id=$1', [orderId, studentId]);
+    await db.query("INSERT INTO payments(id,student_id,order_id,amount_points,status,identity_assertion_id) VALUES($1,$2,$3,$4,'AWAITING_CONFIRMATION',$5)", [paymentId, studentId, orderId, order.total_points, assertionId]);
+
+    const items = (await db.query('SELECT r.*,i.on_hand,i.reserved FROM inventory_reservations r JOIN inventory i ON i.product_id=r.product_id WHERE r.order_id=$1 ORDER BY r.product_id FOR UPDATE OF r,i', [orderId])).rows;
+    if (items.length === 0 || items.some(i => i.status !== 'ACTIVE' || i.reserved < i.quantity || i.on_hand < i.quantity || new Date(i.expires_at) < new Date()))
+        reject(422, 'INSUFFICIENT_STOCK', 'Phần tồn kho giữ cho đơn không còn hợp lệ.');
+
+    const payment = await one(db, 'SELECT * FROM payments WHERE id=$1 FOR UPDATE', [paymentId]);
+    await authorizeDirect(db, payment);
+    const receipt = await capture(db, { ...payment, status: 'AUTHORIZED' });
+
+    for (const item of items) {
+        await db.query('UPDATE inventory SET on_hand=on_hand-$2,reserved=reserved-$2 WHERE product_id=$1', [item.product_id, item.quantity]);
+        await db.query("INSERT INTO inventory_movements(id,product_id,order_id,kind,quantity_delta) VALUES($1,$2,$3,'SALE',$4)", [id(), item.product_id, orderId, -item.quantity]);
+    }
+    await db.query("UPDATE inventory_reservations SET status='CONSUMED' WHERE order_id=$1", [orderId]);
+    await db.query("UPDATE orders SET status='COMPLETED',version=version+1,completed_at=now() WHERE id=$1", [orderId]);
+    await audit(db, a, 'CANTEEN_PAID_DIRECT_RFID', orderId, undefined, { studentId, cardId, amountPoints: order.total_points });
+    return { orderId, status: 'COMPLETED', transactionId: receipt.id, amountPoints: order.total_points, studentId };
 }

@@ -32,6 +32,20 @@ export async function login(pool: Pool, req: Request) {
         reject(401, 'INVALID_CREDENTIALS', 'Email hoặc mật khẩu không đúng.');
     return transaction(pool, async (db) => { const credentials = await newSession(db, user.id); await audit(db, null, 'AUTH_LOGIN', user.id); return credentials; });
 }
+
+export async function demoLogin(pool: Pool, rawEmail: string) {
+    const email = str(rawEmail, 200).toLowerCase();
+    const result = await pool.query("SELECT * FROM campus.users WHERE email=$1 AND status='ACTIVE'", [email]);
+    const user = result.rows[0];
+    if (!user) {
+        reject(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản người dùng.');
+    }
+    return transaction(pool, async (db) => {
+        const credentials = await newSession(db, user.id);
+        await audit(db, null, 'AUTH_DEMO_LOGIN', user.id);
+        return credentials;
+    });
+}
 export async function refresh(pool: Pool, raw: string): Promise<Result> {
     return transaction(pool, async (db) => {
         const session = await optional(db, 'SELECT * FROM auth_sessions WHERE refresh_hash=$1 FOR UPDATE', [hash(raw)]);

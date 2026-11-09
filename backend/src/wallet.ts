@@ -142,6 +142,25 @@ export async function authorize(db: Db, p: Record<string, any>, sourceVersion: n
     await db.query("INSERT INTO wallet_holds(id,wallet_id,payment_id,amount_points,status) VALUES($1,$2,$3,$4,'ACTIVE')", [id(), wallet.walletId, p.id, p.amount_points]);
     await db.query("UPDATE payments SET status='AUTHORIZED' WHERE id=$1", [p.id]);
 }
+export async function authorizeDirect(db: Db, p: Record<string, any>) {
+    if (p.status !== 'AWAITING_CONFIRMATION')
+        reject(409, 'PAYMENT_STATE', 'Giao dịch không còn chờ thanh toán.');
+    await identityStillValid(db, p);
+    const wallet = await balance(db, p.student_id, true);
+    if (wallet.status !== 'ACTIVE')
+        reject(422, 'WALLET_FROZEN', 'Ví đang bị khóa.');
+    const amount = BigInt(p.amount_points);
+    const limits = (await one(db, "SELECT value FROM system_settings WHERE key='wallet_limits'")).value;
+    if (amount > BigInt(limits.transactionPoints))
+        reject(422, 'TRANSACTION_LIMIT', 'Vượt hạn mức point/giao dịch thử nghiệm.');
+    if (BigInt(wallet.availablePoints) < amount)
+        reject(422, 'INSUFFICIENT_POINTS', 'Ví chưa đủ point.', { requiredPoints: p.amount_points, availablePoints: wallet.availablePoints, shortfallPoints: (amount - BigInt(wallet.availablePoints)).toString() });
+    const daily = await optional(db, "SELECT charged_points FROM wallet_daily_usage WHERE wallet_id=$1 AND business_date=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date", [wallet.walletId]);
+    if (BigInt(daily?.charged_points ?? 0) + BigInt(wallet.heldPoints) + amount > BigInt(limits.dailyPoints))
+        reject(422, 'DAILY_LIMIT', 'Vượt hạn mức point trong ngày thử nghiệm.');
+    await db.query("INSERT INTO wallet_holds(id,wallet_id,payment_id,amount_points,status) VALUES($1,$2,$3,$4,'ACTIVE')", [id(), wallet.walletId, p.id, p.amount_points]);
+    await db.query("UPDATE payments SET status='AUTHORIZED' WHERE id=$1", [p.id]);
+}
 export async function capture(db: Db, p: Record<string, any>) {
     if (p.status === 'CAPTURED')
         return one(db, 'SELECT id FROM wallet_transactions WHERE payment_id=$1', [p.id]);

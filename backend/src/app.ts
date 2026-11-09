@@ -2,15 +2,17 @@ import express, { type Request, type Response, type ErrorRequestHandler } from '
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Pool } from 'pg';
 import { resolve } from 'node:path';
-import { existsSync } from 'node:fs';
-import { actorForToken, checkPin, login, profile, refresh, revokeSessions, safeError } from './auth.ts';
-import { audit, bool, choice, emit, expected, fields, handler, hash, id, integer, mutate, one, optional, passwordHash, points, rateLimit, reject, requirePermission, requireRole, send, str, token, transaction, uuid, type Actor, type CampusConfig, type Db, type Result } from './platform.ts';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import { actorForToken, checkPin, demoLogin, login, profile, refresh, revokeSessions, safeError } from './auth.ts';
+import { audit, bool, choice, emit, expected, fields, handler, hash, id, integer, mutate, one, optional, passwordHash, points, rateLimit, reject, requirePermission, requireRole, send, str, token, transaction, uidHash, uuid, type Actor, type CampusConfig, type Db, type Result } from './platform.ts';
 import * as wallet from './wallet.ts';
 import * as devices from './devices.ts';
 import * as parking from './parking.ts';
 import * as canteen from './canteen.ts';
 import * as attendance from './attendance.ts';
 import { normalizePlate } from './providers.ts';
+import { mountFacePilot } from './face-pilot.ts';
+import { enrollFaceReal, identifyFaceReal, detectFaceReal } from './face-service.ts';
 type Context = {
     db: Db;
     a: Actor;
@@ -18,6 +20,7 @@ type Context = {
 };
 type RouteFn = (c: Context) => Promise<unknown>;
 const parkingRoles = ['ADMIN', 'PARKING_STAFF'], canteenRoles = ['ADMIN', 'CANTEEN_STAFF'], lecturerRoles = ['ADMIN', 'LECTURER'];
+let latestTappedCard: { uid: string; tappedAt: string; deviceId?: string } | null = null;
 export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     const app = express();
     app.disable('x-powered-by');
@@ -42,7 +45,7 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
         }
         next();
     });
-    app.use(express.json({ limit: '32kb' }));
+    app.use(express.json({ limit: '10mb' }));
     app.get('/healthz', (_req, res) => res.json({ status: 'ok', application: 'Smart Campus', environment: cfg.env }));
     app.get('/readyz', handler(async (_req, res) => {
         try {
@@ -67,6 +70,37 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     }
     app.post('/api/v1/auth/login', handler(async (req, res) => send(res, { data: sessionResponse(req, res, await login(pool, req)) })));
     app.get('/api/v1/auth/csrf', (_req, res) => { const csrf = token(); res.cookie('campus_csrf', csrf, { secure: cfg.origin.startsWith('https:'), sameSite: 'strict', path: '/', maxAge: 7 * 86400000 }); send(res, { data: { csrfToken: csrf } }); });
+    if (cfg.env === 'development') {
+        app.get('/api/v1/auth/demo-accounts', (_req, res) => {
+            let demoSecret: Record<string, string> = {};
+            try {
+                const localJson = resolve(import.meta.dirname, '../../.work/campus-local.json');
+                if (existsSync(localJson)) {
+                    demoSecret = JSON.parse(readFileSync(localJson, 'utf8'));
+                }
+            } catch {}
+            send(res, {
+                data: {
+                    enabled: true,
+                    password: demoSecret.password ?? '',
+                    pin: demoSecret.pin ?? '',
+                    accounts: [
+                        { role: 'ADMIN', email: 'admin@campus.test', name: 'Quản trị viên (Admin)' },
+                        { role: 'STUDENT', email: 'student@campus.test', name: 'Sinh viên 1 (DEMO001)' },
+                        { role: 'STUDENT', email: 'student2@campus.test', name: 'Sinh viên 2 (DEMO002)' },
+                        { role: 'LECTURER', email: 'lecturer@campus.test', name: 'Giảng viên' },
+                        { role: 'PARKING_STAFF', email: 'parking@campus.test', name: 'Nhân viên Bãi xe' },
+                        { role: 'CANTEEN_STAFF', email: 'canteen@campus.test', name: 'Thu ngân Căn tin' },
+                    ]
+                }
+            });
+        });
+        app.post('/api/v1/auth/demo-login', handler(async (req, res) => {
+            const b = fields(req.body, ['email']);
+            const creds = await demoLogin(pool, str(b.email, 120));
+            send(res, { data: sessionResponse(req, res, creds) });
+        }));
+    }
     app.post('/api/v1/auth/refresh', handler(async (req, res) => {
         await rateLimit(pool, 'refresh:' + req.ip, 30);
         const fromCookie = cookie(req, 'campus_refresh');
@@ -111,8 +145,19 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     deviceRoute('/device-events', (db, d, req) => devices.scan(db, d, req.body, cfg));
     deviceRoute('/device-events/:eventId', async (db, d, req) => one(db, 'SELECT response,http_status FROM device_events WHERE device_id=$1 AND event_id=$2', [d.id, uuid(req.params.eventId)]), 'get');
     deviceRoute('/device/pending-actions', async (db, d) => (await db.query("SELECT c.id,c.purpose,c.status,c.expires_at,a.id AS identity_assertion_id FROM device_contexts c LEFT JOIN identity_assertions a ON a.context_id=c.id WHERE c.device_id=$1 ORDER BY c.created_at DESC LIMIT 5", [d.id])).rows, 'get');
+    deviceRoute('/device/raw-tap', async (db, d, req) => {
+        const b = fields(req.body, ['uid']);
+        const uid = str(b.uid, 20).toUpperCase();
+        latestTappedCard = { uid, tappedAt: new Date().toISOString(), deviceId: d.id };
+        return { received: true, uid };
+    });
     deviceRoute('/device/actions/:id', (db, d, req) => devices.deviceAction(db, d, uuid(req.params.id)), 'get');
-    app.use('/api/v1', (req, res, next) => { void (async () => { const a = await actorForToken(pool, req.get('Authorization') ?? ''); res.locals.actor = a; await rateLimit(pool, 'user:' + a.id, 240); })().then(() => next(), next); });
+    app.use('/api/v1', (req, res, next) => { void (async () => {
+        const a = await actorForToken(pool, req.get('Authorization') ?? '');
+        res.locals.actor = a;
+        await rateLimit(pool, 'user:' + a.id, 240);
+    })().then(() => next(), next); });
+    mountFacePilot(app, pool, cfg.env === 'development' && process.env.HOST === '127.0.0.1' ? process.env.FACE_PILOT_CAMERA ?? '' : '');
     function read(path: string, roles: string[] | null, fn: RouteFn) {
         app.get('/api/v1' + path, handler(async (req, res) => {
             const a = res.locals.actor as Actor;
@@ -192,7 +237,50 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     read('/me/wallet', ['STUDENT'], ({ db, a }) => wallet.balance(db, a.studentId!));
     read('/me/wallet/ledger', ['STUDENT'], async ({ db, a }) => (await db.query('SELECT e.*,t.type,t.original_transaction_id FROM wallet_ledger_entries e JOIN wallet_transactions t ON t.id=e.transaction_id JOIN wallets w ON w.account_id=e.account_id WHERE w.student_id=$1 ORDER BY e.created_at DESC,e.id DESC LIMIT 100', [a.studentId])).rows);
     read('/me/wallet/transactions', ['STUDENT'], async ({ db, a }) => (await db.query('SELECT * FROM wallet_transactions WHERE student_id=$1 ORDER BY created_at DESC LIMIT 100', [a.studentId])).rows);
-    write('/me/topups', ['STUDENT'], ({ db, a, req }) => wallet.topup(db, a, req.body));
+    read('/me/wallet/spending-report', ['STUDENT'], async ({ db, a }) => {
+        const balance = await wallet.balance(db, a.studentId!);
+        const summary = (await db.query(
+            `SELECT
+                coalesce(sum(CASE WHEN type='TOP_UP' THEN amount_points ELSE 0 END), 0)::text AS "totalTopUp",
+                coalesce(sum(CASE WHEN type='CANTEEN_PAYMENT' THEN amount_points ELSE 0 END), 0)::text AS "totalCanteen",
+                coalesce(sum(CASE WHEN type='PARKING_PAYMENT' THEN amount_points ELSE 0 END), 0)::text AS "totalParking",
+                coalesce(sum(CASE WHEN type IN ('CANTEEN_PAYMENT', 'PARKING_PAYMENT') THEN amount_points ELSE 0 END), 0)::text AS "totalSpent"
+             FROM campus.wallet_transactions
+             WHERE student_id=$1`,
+            [a.studentId]
+        )).rows[0];
+
+        const transactions = (await db.query(
+            `SELECT t.id, t.type, t.amount_points AS "amountPoints", t.created_at AS "createdAt",
+                    p.order_id AS "orderId", p.parking_session_id AS "parkingSessionId",
+                    ps.entry_plate AS "entryPlate", ps.exit_plate AS "exitPlate"
+             FROM campus.wallet_transactions t
+             LEFT JOIN campus.payments p ON p.id=t.payment_id
+             LEFT JOIN campus.parking_sessions ps ON ps.id=p.parking_session_id
+             WHERE t.student_id=$1
+             ORDER BY t.created_at DESC LIMIT 50`,
+            [a.studentId]
+        )).rows;
+
+        return {
+            wallet: balance,
+            summary,
+            transactions,
+        };
+    });
+    write('/me/topups', ['STUDENT'], async ({ db, a, req }) => {
+        const res = await wallet.topup(db, a, req.body);
+        if (cfg.simulator || cfg.env === 'development') {
+            await wallet.callback(db, {
+                callbackId: 'auto:' + id(),
+                topupId: res.id,
+                amountPoints: res.amountPoints,
+                status: 'SUCCEEDED',
+            });
+            return { ...res, status: 'SUCCEEDED', message: 'Nạp point thành công vào ví!' };
+        }
+        return res;
+    });
     read('/me/topups', ['STUDENT'], async ({ db, a }) => (await db.query('SELECT t.* FROM topup_orders t JOIN wallets w ON w.id=t.wallet_id WHERE w.student_id=$1 ORDER BY created_at DESC LIMIT 100', [a.studentId])).rows);
     read('/me/topups/:id', ['STUDENT'], ({ db, a, req }) => one(db, 'SELECT t.* FROM topup_orders t JOIN wallets w ON w.id=t.wallet_id WHERE t.id=$1 AND w.student_id=$2', [uuid(req.params.id), a.studentId]));
     read('/me/payment-requests', ['STUDENT'], async ({ db, a }) => (await db.query("SELECT p.*,coalesce(o.version,s.version) AS source_version,o.expires_at AS order_expires_at FROM payments p LEFT JOIN orders o ON o.id=p.order_id LEFT JOIN parking_sessions s ON s.id=p.parking_session_id WHERE p.student_id=$1 AND p.status='AWAITING_CONFIRMATION' ORDER BY p.created_at DESC LIMIT 100", [a.studentId])).rows);
@@ -272,14 +360,200 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     });
     write('/canteen/orders/:id/identify', canteenRoles, ({ db, a, req }) => canteen.identify(db, a, uuid(req.params.id), req.body));
     write('/canteen/orders/:id/payments', canteenRoles, ({ db, a, req }) => canteen.checkout(db, a, uuid(req.params.id), req.body));
+    write('/canteen/orders/:id/direct-pay', canteenRoles, ({ db, a, req }) => canteen.directCheckout(db, a, uuid(req.params.id), req.body, cfg.cardKey));
     write('/canteen/orders/:id/cancel', canteenRoles, ({ db, a, req }) => canteen.cancelOrder(db, a, uuid(req.params.id), str(fields(req.body, ['reason']).reason, 1000, 5)));
     read('/me/canteen-orders', ['STUDENT'], async ({ db, a }) => (await db.query('SELECT * FROM orders WHERE student_id=$1 ORDER BY created_at DESC LIMIT 100', [a.studentId])).rows);
     registerAcademic(read, write);
     write('/device-contexts/:id/cancel', ['ADMIN', 'PARKING_STAFF', 'CANTEEN_STAFF', 'LECTURER'], async ({ db, a, req }) => { const b = fields(req.body, ['reason']); const c = await one(db, 'SELECT * FROM device_contexts WHERE id=$1 FOR UPDATE', [uuid(req.params.id)]); requireRole(a, ...(c.purpose === 'ENROLLMENT' ? ['ADMIN'] : c.purpose === 'CANTEEN' ? canteenRoles : c.purpose === 'ATTENDANCE' ? lecturerRoles : parkingRoles)); if (c.status !== 'OPEN')
         reject(409, 'CONTEXT_STATE', 'Lần xác thực đã được sử dụng; hãy xử lý nghiệp vụ tương ứng.'); await db.query("UPDATE device_contexts SET status='CANCELLED' WHERE id=$1", [c.id]); await audit(db, a, 'DEVICE_CONTEXT_CANCELLED', c.id, str(b.reason, 1000, 5)); return { cancelled: true }; });
+    write('/face/detect', ['ADMIN', 'PARKING_STAFF', 'CANTEEN_STAFF', 'LECTURER', 'STUDENT'], async ({ req }) => {
+        const b = fields(req.body, ['imageBase64', 'sourceUrl', 'useEsp32Camera'], []);
+        let imageSource = b.imageBase64;
+        let returnFrameBase64: string | undefined = undefined;
+
+        if (b.useEsp32Camera || (!imageSource || typeof imageSource !== 'string' || imageSource.trim().length === 0)) {
+            const cameraUrl = b.sourceUrl || (process.env.FACE_PILOT_CAMERA ? `${process.env.FACE_PILOT_CAMERA}/capture` : 'http://192.168.2.43/capture');
+            const res = await fetch(cameraUrl, { signal: AbortSignal.timeout(5000) });
+            if (!res.ok) {
+                reject(502, 'CAMERA_UNAVAILABLE', 'Không thể kết nối đến Camera ESP32-S3.');
+            }
+            const buf = Buffer.from(await res.arrayBuffer());
+            imageSource = buf;
+            returnFrameBase64 = `data:image/jpeg;base64,${buf.toString('base64')}`;
+        } else if (typeof imageSource === 'string') {
+            returnFrameBase64 = imageSource;
+        }
+
+        const result = await detectFaceReal(imageSource as string | Buffer);
+        return {
+            ...result,
+            frameBase64: returnFrameBase64
+        };
+    });
+
+    read('/camera/capture', ['ADMIN', 'PARKING_STAFF', 'CANTEEN_STAFF', 'LECTURER', 'STUDENT'], async () => {
+        const cameraUrl = process.env.FACE_PILOT_CAMERA ? `${process.env.FACE_PILOT_CAMERA}/capture` : 'http://192.168.2.43/capture';
+        const res = await fetch(cameraUrl, { signal: AbortSignal.timeout(6000) });
+        if (!res.ok) {
+            reject(502, 'CAMERA_UNAVAILABLE', 'Không thể kết nối đến Camera ESP32-S3.');
+        }
+        const buffer = Buffer.from(await res.arrayBuffer());
+        const base64 = buffer.toString('base64');
+        return {
+            url: cameraUrl,
+            contentType: 'image/jpeg',
+            bytes: buffer.length,
+            base64: `data:image/jpeg;base64,${base64}`
+        };
+    });
+
+    write('/face/identify', ['ADMIN', 'PARKING_STAFF', 'CANTEEN_STAFF', 'LECTURER'], async ({ db, a, req }) => {
+        const b = fields(req.body, ['contextId', 'imageBase64', 'sourceUrl', 'useEsp32Camera'], []);
+        const contextId = b.contextId ? uuid(b.contextId) : null;
+
+        let imageSource = b.imageBase64;
+        if (b.useEsp32Camera || !imageSource || typeof imageSource !== 'string' || imageSource.trim().length === 0) {
+            imageSource = b.sourceUrl || (process.env.FACE_PILOT_CAMERA ? `${process.env.FACE_PILOT_CAMERA}/capture` : 'http://192.168.2.43/capture');
+        }
+
+        const match = await identifyFaceReal(imageSource);
+        if (!match.success || match.outcome !== 'MATCH' || !match.studentId) {
+            return {
+                matched: false,
+                outcome: match.outcome ?? 'NO_MATCH',
+                score: match.score ?? 0,
+                message: match.message ?? 'Không nhận diện được khuôn mặt.'
+            };
+        }
+
+        const student = await one(
+            db,
+            `SELECT s.id, s.student_code, u.name, u.email, coalesce(l.balance_points, 0)::text AS wallet_balance
+             FROM campus.students s
+             JOIN campus.users u ON u.id = s.user_id
+             LEFT JOIN campus.wallets w ON w.student_id = s.id
+             LEFT JOIN campus.ledger_accounts l ON l.id = w.account_id
+             WHERE s.id = $1`,
+            [uuid(match.studentId)]
+        );
+
+        let assertionId: string | null = null;
+        if (contextId) {
+            const ctx = await one(db, 'SELECT * FROM campus.device_contexts WHERE id = $1', [contextId]);
+            if (ctx.purpose === 'PARKING_ENTRY') {
+                const existing = await optional(
+                    db,
+                    `SELECT ps.id, ps.entry_plate, ps.status
+                     FROM campus.parking_sessions ps
+                     WHERE ps.student_id = $1
+                       AND ps.status IN ('PENDING_ENTRY', 'ACTIVE', 'EXIT_PENDING', 'EXCEPTION')
+                     LIMIT 1`,
+                    [student.id]
+                );
+                if (existing) {
+                    assertionId = id();
+                    await db.query(
+                        'INSERT INTO campus.identity_assertions(id, student_id, device_id, context_id, source, expires_at) VALUES($1, $2, $3, $4, \'REAL\', now() + interval \'60 seconds\')',
+                        [assertionId, student.id, ctx.device_id, ctx.id]
+                    );
+                    return {
+                        matched: true,
+                        outcome: 'VEHICLE_ALREADY_IN_LOT',
+                        studentId: student.id,
+                        studentCode: student.student_code,
+                        studentName: student.name,
+                        score: match.score,
+                        box: match.box,
+                        message: `⛔ Sinh viên ${student.name} (${student.student_code}) đã có xe đang gửi trong bãi (Biển số: ${existing.entry_plate ?? 'Đang xử lý'}). Không thể dùng khuôn mặt để gửi thêm xe!`
+                    };
+                }
+            }
+            assertionId = id();
+            await db.query(
+                `INSERT INTO campus.identity_assertions(id, student_id, device_id, context_id, source, expires_at)
+                 VALUES($1, $2, $3, $4, 'REAL', now() + interval '60 seconds')`,
+                [assertionId, student.id, ctx.device_id, ctx.id]
+            );
+        }
+
+        return {
+            matched: true,
+            outcome: 'MATCH',
+            studentId: student.id,
+            studentCode: student.student_code,
+            studentName: student.name,
+            email: student.email,
+            walletBalance: student.wallet_balance,
+            score: match.score,
+            box: match.box,
+            identityAssertionId: assertionId
+        };
+    });
+
     if (cfg.simulator)
         registerSimulation(read, write);
-    registerAdmin(read, write);
+    
+    read('/admin/check-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async ({ db, req }) => {
+        const uid = typeof req.query.uid === 'string' ? req.query.uid.trim() : '';
+        if (!uid || uid.length < 4) {
+            return { registered: false };
+        }
+        let cleanUid = uid.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+        if (cleanUid.length % 2 !== 0) cleanUid = '0' + cleanUid;
+        if (cleanUid.length < 8) {
+            return { registered: false };
+        }
+        const digest = uidHash(cleanUid, cfg.cardKey);
+        const prior = await optional(
+            db,
+            `SELECT c.id, s.student_code, u.name, u.email
+             FROM campus.rfid_cards c
+             JOIN campus.students s ON s.id = c.student_id
+             JOIN campus.users u ON u.id = s.user_id
+             WHERE c.uid_hmac = $1 AND c.status = 'ACTIVE'`,
+            [digest]
+        );
+        if (prior) {
+            return {
+                registered: true,
+                cleanUid,
+                studentCode: prior.student_code,
+                studentName: prior.name,
+                email: prior.email
+            };
+        }
+        return { registered: false, cleanUid };
+    });
+
+    write('/face/check-enrolled', ['ADMIN'], async ({ db, req }) => {
+        const b = fields(req.body, ['imageBase64'], ['imageBase64']);
+        const match = await identifyFaceReal(b.imageBase64);
+        if (match.success && match.outcome === 'MATCH' && match.studentId) {
+            const student = await optional(
+                db,
+                `SELECT s.student_code, u.name, u.email
+                 FROM campus.students s
+                 JOIN campus.users u ON u.id = s.user_id
+                 WHERE s.id = $1`,
+                [match.studentId]
+            );
+            return {
+                alreadyEnrolled: true,
+                studentId: match.studentId,
+                studentCode: student?.student_code ?? match.studentCode ?? '',
+                studentName: student?.name ?? match.name ?? '',
+                score: match.score ?? 0,
+                box: match.box
+            };
+        }
+        return {
+            alreadyEnrolled: false,
+            score: match.score ?? 0,
+            outcome: match.outcome
+        };
+    });
+
+    registerAdmin(read, write, cfg);
     read('/dashboard', null, async ({ db, a }) => {
         if (a.studentId)
             return { wallet: await wallet.balance(db, a.studentId), notifications: (await db.query('SELECT count(*)::integer AS count FROM notifications WHERE recipient_user_id=$1 AND read_at IS NULL', [a.id])).rows[0].count };
@@ -287,8 +561,20 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     });
     const web = resolve(import.meta.dirname, '../../flutter/app/build/web');
     if (existsSync(resolve(web, 'index.html'))) {
-        app.use(express.static(web, { index: false }));
-        app.get(['/', '/app'], (_req, res) => res.sendFile(resolve(web, 'index.html')));
+        app.use(express.static(web, {
+            index: false,
+            setHeaders: (res) => {
+                res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+                res.setHeader('Pragma', 'no-cache');
+                res.setHeader('Expires', '0');
+            }
+        }));
+        app.get(['/', '/app'], (_req, res) => {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.sendFile(resolve(web, 'index.html'));
+        });
     }
     app.use((_req, res) => send(res, { status: 404, error: { code: 'NOT_FOUND', message: 'Không tìm thấy đường dẫn.' } }));
     const errors: ErrorRequestHandler = (error, _req, res, _next) => {
@@ -337,17 +623,59 @@ function registerAcademic(read: Read, write: Write) {
 function registerSimulation(read: Read, write: Write) {
     const simRoles = ['ADMIN', 'LECTURER', 'PARKING_STAFF', 'CANTEEN_STAFF'];
     read('/simulator/status', simRoles, async ({ db, a }) => { requirePermission(a, 'simulator.use'); return { modes: { rfid: 'REAL', face: 'DEMO', liveness: 'DEMO', ocr: 'DEMO', camera: 'DEMO', gate: 'SIMULATOR', payment: 'MOCK' }, devices: (await db.query('SELECT id,name,kind,role,config_version,ack_version,last_seen_at,last_uid_mask,active FROM devices ORDER BY name')).rows }; });
-    read('/simulator/students', simRoles, async ({ db, a }) => { requirePermission(a, 'simulator.use'); return (await db.query('SELECT s.id,s.student_code,u.name FROM students s JOIN users u ON u.id=s.user_id WHERE s.synthetic AND s.active ORDER BY student_code')).rows; });
-    read('/simulator/events', simRoles, async ({ db, a }) => { requirePermission(a, 'simulator.use'); return { rfid: (await db.query('SELECT id,device_id,event_id,context_id,source,response,created_at FROM device_events ORDER BY created_at DESC LIMIT 50')).rows, face: (await db.query('SELECT * FROM simulation_events ORDER BY created_at DESC LIMIT 50')).rows, contexts: (await db.query("SELECT * FROM device_contexts WHERE status='OPEN' AND expires_at>now() ORDER BY created_at DESC LIMIT 20")).rows, identities: (await db.query('SELECT id,student_id,context_id,source,expires_at,consumed_at FROM identity_assertions ORDER BY created_at DESC LIMIT 20')).rows }; });
+    read('/simulator/students', simRoles, async ({ db, a }) => { requirePermission(a, 'simulator.use'); return (await db.query('SELECT s.id,s.student_code,u.name FROM students s JOIN users u ON u.id=s.user_id WHERE s.active ORDER BY student_code')).rows; });
+    read('/simulator/events', simRoles, async ({ db, a }) => {
+        requirePermission(a, 'simulator.use');
+        const identities = (await db.query(`
+            SELECT 
+                a.id,
+                a.student_id,
+                a.context_id,
+                a.source,
+                a.expires_at,
+                a.consumed_at,
+                a.card_id,
+                s.student_code,
+                u.name AS student_name,
+                u.email AS student_email,
+                d.last_uid_mask AS card_mask,
+                coalesce(l.balance_points, 0)::text AS wallet_balance
+            FROM identity_assertions a
+            JOIN students s ON s.id = a.student_id
+            JOIN users u ON u.id = s.user_id
+            LEFT JOIN devices d ON d.id = a.device_id
+            LEFT JOIN wallets w ON w.student_id = s.id
+            LEFT JOIN ledger_accounts l ON l.id = w.account_id
+            ORDER BY a.created_at DESC LIMIT 20
+        `)).rows;
+        return {
+            rfid: (await db.query('SELECT id,device_id,event_id,context_id,source,response,created_at FROM device_events ORDER BY created_at DESC LIMIT 50')).rows,
+            face: (await db.query('SELECT * FROM simulation_events ORDER BY created_at DESC LIMIT 50')).rows,
+            contexts: (await db.query("SELECT * FROM device_contexts WHERE status='OPEN' AND expires_at>now() ORDER BY created_at DESC LIMIT 20")).rows,
+            identities,
+            latestTappedCard
+        };
+    });
     write('/simulator/face-events', simRoles, ({ db, a, req }) => devices.demoFace(db, a, req.body), 'post', true);
     write('/simulator/ocr-observations', parkingRoles, ({ db, a, req }) => devices.demoOcr(db, a, req.body));
     write('/simulator/attendance-events', lecturerRoles, ({ db, a, req }) => attendance.attendanceDemo(db, a, req.body), 'post', true);
     write('/simulator/gate-scenarios', parkingRoles, async ({ db, a, req }) => { requirePermission(a, 'simulator.use'); const b = fields(req.body, ['commandId', 'scenario', 'providerEventId']); return parking.gateEvent(db, a, uuid(b.commandId), str(b.scenario, 30), str(b.providerEventId, 128)); }, 'post', true);
     write('/simulator/mock-topup-scenarios', ['ADMIN'], async ({ db, a, req }) => { requirePermission(a, 'simulator.use'); const b = fields(req.body, ['topupId', 'scenario']); const topup = await one(db, 'SELECT * FROM topup_orders WHERE id=$1', [uuid(b.topupId)]); return wallet.callback(db, { callbackId: 'scenario:' + id(), topupId: topup.id, amountPoints: topup.amount_points, status: choice(b.scenario, ['SUCCEEDED', 'FAILED'] as const) }); });
 }
-function registerAdmin(read: Read, write: Write) {
+function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
     read('/admin/reports', ['ADMIN'], async ({ db }) => ({ revenue: (await db.query("SELECT (t.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS day,coalesce(o.type,t.type) AS service,sum(CASE WHEN t.type IN('REFUND','REVERSAL') THEN -t.amount_points ELSE t.amount_points END)::text AS net_points FROM wallet_transactions t LEFT JOIN wallet_transactions o ON o.id=t.original_transaction_id WHERE t.type IN('CANTEEN_PAYMENT','PARKING_PAYMENT','REFUND','REVERSAL') GROUP BY 1,2 ORDER BY 1 DESC LIMIT 100")).rows, parking: (await db.query('SELECT status,count(*)::integer AS count FROM parking_sessions GROUP BY status')).rows, attendance: (await db.query('SELECT status,count(*)::integer AS count FROM attendance_records GROUP BY status')).rows, outbox: (await db.query('SELECT count(*) FILTER(WHERE published_at IS NULL)::integer AS pending,count(*) FILTER(WHERE dead_letter_at IS NOT NULL)::integer AS dead_letter FROM outbox_events')).rows[0] }));
-    read('/admin/rfid-cards', ['ADMIN'], async ({ db }) => (await db.query('SELECT c.id,c.student_id,c.status,c.expires_at,s.student_code FROM rfid_cards c JOIN students s ON s.id=c.student_id ORDER BY c.created_at DESC LIMIT 100')).rows);
+    read('/admin/latest-tapped-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async () => latestTappedCard);
+    write('/admin/clear-latest-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async () => {
+        latestTappedCard = null;
+        return { cleared: true };
+    });
+    write('/admin/simulate-card-tap', ['ADMIN'], async ({ req }) => {
+        const b = fields(req.body, ['uid']);
+        const uid = str(b.uid, 20).toUpperCase();
+        latestTappedCard = { uid, tappedAt: new Date().toISOString() };
+        return { tapped: true, uid };
+    });
+    read('/admin/rfid-cards', ['ADMIN'], async ({ db }) => (await db.query('SELECT c.id,c.student_id,c.status,c.expires_at,s.student_code,u.name AS student_name FROM rfid_cards c JOIN students s ON s.id=c.student_id JOIN users u ON u.id=s.user_id ORDER BY c.created_at DESC LIMIT 100')).rows);
     read('/admin/settings', ['ADMIN'], async ({ db }) => ({ settings: (await db.query('SELECT * FROM system_settings')).rows, conversion: (await db.query('SELECT * FROM point_conversion_policies WHERE active')).rows[0] }));
     write('/admin/settings/wallet-limits', ['ADMIN'], async ({ db, a, req }) => { const b = fields(req.body, ['transactionPoints', 'dailyPoints', 'expectedVersion', 'reason']); const setting = await one(db, "SELECT * FROM system_settings WHERE key='wallet_limits' FOR UPDATE"); expected(setting.version, b.expectedVersion); const transactionPoints = points(b.transactionPoints), dailyPoints = points(b.dailyPoints); if (BigInt(dailyPoints) < BigInt(transactionPoints))
         reject(422, 'INVALID_LIMITS', 'Hạn mức ngày phải lớn hơn hoặc bằng mỗi giao dịch.'); await db.query("UPDATE system_settings SET value=$1,version=version+1,updated_at=now() WHERE key='wallet_limits'", [{ transactionPoints, dailyPoints }]); await audit(db, a, 'WALLET_LIMITS_CHANGED', null, str(b.reason, 1000, 5)); return { updated: true }; }, 'put');
@@ -396,6 +724,311 @@ function registerAdmin(read: Read, write: Write) {
         await audit(db, a, 'USER_STATUS_CHANGED', target, str(b.reason, 1000, 5));
         return { id: target, status };
     });
+
+    async function performDeleteStudent(db: Db, a: Actor, studentId: string) {
+        const s = await one(db, 'SELECT * FROM campus.students WHERE id = $1', [studentId]);
+        const u = await one(db, 'SELECT * FROM campus.users WHERE id = $1', [s.user_id]);
+
+        // 1. Remove face files from disk
+        try {
+            const profilesDir = resolve(import.meta.dirname, '../../.work/face-profiles');
+            const npyPath = resolve(profilesDir, `${studentId}-v1.npy`);
+            const metaPath = resolve(profilesDir, `${studentId}-meta.json`);
+            const avatarPath = resolve(profilesDir, `${studentId}-avatar.jpg`);
+            if (existsSync(npyPath)) unlinkSync(npyPath);
+            if (existsSync(metaPath)) unlinkSync(metaPath);
+            if (existsSync(avatarPath)) unlinkSync(avatarPath);
+        } catch (e) {
+            console.warn('[DELETE_STUDENT] Face file cleanup error:', e);
+        }
+
+        // 2. Cascade delete in DB with verified foreign key dependency order
+        await db.query("SET LOCAL campus.allow_admin_purge = 'on'");
+        const contextIds = (await db.query(`
+            SELECT id FROM campus.device_contexts 
+            WHERE enrollment_student_id = $1 
+               OR parking_session_id IN (SELECT id FROM campus.parking_sessions WHERE student_id = $1)
+               OR order_id IN (SELECT id FROM campus.orders WHERE student_id = $1)
+        `, [studentId])).rows.map(r => r.id);
+
+        // 2.1. Refunds cascade
+        await db.query(`
+            DELETE FROM campus.refund_items 
+            WHERE refund_id IN (
+                SELECT id FROM campus.refunds 
+                WHERE original_transaction_id IN (
+                    SELECT id FROM campus.wallet_transactions WHERE student_id = $1
+                )
+            )
+        `, [studentId]);
+
+        await db.query(`
+            DELETE FROM campus.refunds 
+            WHERE original_transaction_id IN (
+                SELECT id FROM campus.wallet_transactions WHERE student_id = $1
+            )
+        `, [studentId]);
+
+        // 2.2. Ledger entries & wallet transactions
+        await db.query(`
+            DELETE FROM campus.wallet_ledger_entries 
+            WHERE transaction_id IN (
+                SELECT id FROM campus.wallet_transactions WHERE student_id = $1
+            ) OR account_id IN (
+                SELECT account_id FROM campus.wallets WHERE student_id = $1
+            )
+        `, [studentId]);
+
+        await db.query('DELETE FROM campus.wallet_transactions WHERE student_id = $1', [studentId]);
+
+        // 2.3. Payment approvals & holds
+        await db.query('DELETE FROM campus.payment_approvals WHERE student_id = $1', [studentId]);
+        await db.query(`
+            DELETE FROM campus.wallet_holds 
+            WHERE wallet_id IN (SELECT id FROM campus.wallets WHERE student_id = $1)
+               OR payment_id IN (SELECT id FROM campus.payments WHERE student_id = $1)
+        `, [studentId]);
+
+        // 2.4. Parking payments & payments
+        await db.query(`
+            DELETE FROM campus.parking_payments 
+            WHERE session_id IN (SELECT id FROM campus.parking_sessions WHERE student_id = $1)
+               OR payment_id IN (SELECT id FROM campus.payments WHERE student_id = $1)
+        `, [studentId]);
+
+        await db.query('DELETE FROM campus.payments WHERE student_id = $1', [studentId]);
+
+        // 2.5. Identity assertions & device context observations
+        if (contextIds.length > 0) {
+            await db.query('DELETE FROM campus.ocr_observations WHERE context_id = ANY($1)', [contextIds]);
+            await db.query('DELETE FROM campus.device_challenges WHERE context_id = ANY($1)', [contextIds]);
+            await db.query('DELETE FROM campus.device_events WHERE context_id = ANY($1)', [contextIds]);
+            await db.query('DELETE FROM campus.simulation_events WHERE context_id = ANY($1)', [contextIds]);
+            await db.query('DELETE FROM campus.identity_assertions WHERE context_id = ANY($1)', [contextIds]);
+        }
+        await db.query('DELETE FROM campus.identity_assertions WHERE student_id = $1 OR card_id IN (SELECT id FROM campus.rfid_cards WHERE student_id = $1)', [studentId]);
+
+        // 2.6. Parking sessions cascade
+        const sessionIds = (await db.query('SELECT id FROM campus.parking_sessions WHERE student_id = $1', [studentId])).rows.map(r => r.id);
+        if (sessionIds.length > 0) {
+            if (contextIds.length > 0) {
+                await db.query('DELETE FROM campus.device_contexts WHERE id = ANY($1)', [contextIds]);
+            }
+            await db.query('DELETE FROM campus.parking_quotes WHERE session_id = ANY($1)', [sessionIds]);
+            await db.query('DELETE FROM campus.gate_provider_events WHERE command_id IN (SELECT id FROM campus.gate_commands WHERE session_id = ANY($1))', [sessionIds]);
+            await db.query('DELETE FROM campus.gate_commands WHERE session_id = ANY($1)', [sessionIds]);
+            await db.query('DELETE FROM campus.parking_occupancies WHERE session_id = ANY($1)', [sessionIds]);
+            await db.query('DELETE FROM campus.parking_events WHERE session_id = ANY($1)', [sessionIds]);
+            await db.query('DELETE FROM campus.parking_sessions WHERE student_id = $1', [studentId]);
+        }
+
+        if (contextIds.length > 0) {
+            await db.query('DELETE FROM campus.device_contexts WHERE id = ANY($1)', [contextIds]);
+        }
+
+        await db.query('DELETE FROM campus.parking_passes WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.vehicle_authorizations WHERE student_id = $1', [studentId]);
+
+        // 2.7. RFID cards & Biometrics
+        await db.query('DELETE FROM campus.rfid_cards WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.biometric_profiles WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.biometric_consents WHERE student_id = $1', [studentId]);
+
+        // 2.8. Wallets
+        const walletRows = (await db.query('SELECT id, account_id FROM campus.wallets WHERE student_id = $1', [studentId])).rows;
+        const walletIds = walletRows.map(w => w.id);
+        const accountIds = walletRows.map(w => w.account_id);
+        if (walletIds.length > 0) {
+            await db.query('DELETE FROM campus.payment_callbacks WHERE topup_order_id IN (SELECT id FROM campus.topup_orders WHERE wallet_id = ANY($1))', [walletIds]);
+            await db.query('DELETE FROM campus.topup_orders WHERE wallet_id = ANY($1)', [walletIds]);
+            await db.query('DELETE FROM campus.wallet_daily_usage WHERE wallet_id = ANY($1)', [walletIds]);
+        }
+        await db.query('DELETE FROM campus.wallet_security_settings WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.wallets WHERE student_id = $1', [studentId]);
+        if (accountIds.length > 0) {
+            await db.query('DELETE FROM campus.ledger_accounts WHERE id = ANY($1)', [accountIds]);
+        }
+
+        // 2.9. Canteen orders
+        const orderIds = (await db.query('SELECT id FROM campus.orders WHERE student_id = $1', [studentId])).rows.map(r => r.id);
+        if (orderIds.length > 0) {
+            await db.query('DELETE FROM campus.order_items WHERE order_id = ANY($1)', [orderIds]);
+            await db.query('DELETE FROM campus.inventory_reservations WHERE order_id = ANY($1)', [orderIds]);
+            await db.query('DELETE FROM campus.inventory_movements WHERE order_id = ANY($1)', [orderIds]);
+            await db.query('DELETE FROM campus.orders WHERE student_id = $1', [studentId]);
+        }
+
+        // 2.10. Attendance & enrollments
+        await db.query('DELETE FROM campus.attendance_adjustment_requests WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.attendance_records WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.attendance_session_roster WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.enrollments WHERE student_id = $1', [studentId]);
+
+        // 2.11. Student record
+        await db.query('DELETE FROM campus.students WHERE id = $1', [studentId]);
+
+        // 2.12. User record and references
+        await db.query('DELETE FROM campus.notifications WHERE recipient_user_id = $1', [u.id]);
+        await db.query('DELETE FROM campus.outbox_events WHERE recipient_user_id = $1', [u.id]);
+        await db.query('DELETE FROM campus.auth_sessions WHERE user_id = $1', [u.id]);
+        await db.query('DELETE FROM campus.user_roles WHERE user_id = $1', [u.id]);
+        await db.query('UPDATE campus.audit_logs SET actor_id = NULL WHERE actor_id = $1', [u.id]);
+        await db.query('UPDATE campus.orders SET created_by = NULL WHERE created_by = $1', [u.id]);
+        await db.query('UPDATE campus.parking_events SET actor_id = NULL WHERE actor_id = $1', [u.id]);
+        await db.query('UPDATE campus.refunds SET actor_id = NULL WHERE actor_id = $1', [u.id]);
+        await db.query('DELETE FROM campus.wallet_adjustments WHERE actor_id = $1 OR student_id = $2', [u.id, studentId]);
+        await db.query('DELETE FROM campus.users WHERE id = $1', [u.id]);
+
+        await audit(db, a, 'STUDENT_DELETED', studentId, `Đã xóa sinh viên ${s.student_code} (${u.name})`);
+        return { deleted: true, studentId, studentCode: s.student_code, name: u.name };
+    }
+
+    read('/admin/users/:id/delete-preview', ['ADMIN'], async ({ db, req }) => {
+        const targetId = uuid(req.params.id);
+        const user = await one(db, 'SELECT * FROM campus.users WHERE id = $1', [targetId]);
+        const student = await optional(db, 'SELECT * FROM campus.students WHERE user_id = $1', [targetId]);
+        if (!student) {
+            return {
+                userId: user.id,
+                email: user.email,
+                name: user.name,
+                isStudent: false,
+                hasTransactions: false,
+                balancePoints: '0'
+            };
+        }
+        const studentId = student.id;
+        const txCount = (await one(db, 'SELECT count(*)::integer as count FROM campus.wallet_transactions WHERE student_id = $1', [studentId])).count;
+        const w = await optional(db, "SELECT w.*, a.balance_points FROM campus.wallets w JOIN campus.ledger_accounts a ON a.id = w.account_id WHERE w.student_id = $1", [studentId]);
+        const balancePoints = w ? (w.balance_points as string) : '0';
+        const card = await optional(db, "SELECT c.id, c.status FROM campus.rfid_cards c WHERE c.student_id = $1 AND c.status = 'ACTIVE'", [studentId]);
+        const face = await optional(db, "SELECT bp.id FROM campus.biometric_profiles bp WHERE bp.student_id = $1", [studentId]);
+
+        return {
+            userId: user.id,
+            studentId,
+            studentCode: student.student_code,
+            email: user.email,
+            name: user.name,
+            isStudent: true,
+            hasTransactions: txCount > 0,
+            transactionCount: txCount,
+            balancePoints,
+            
+            hasCard: !!card,
+            hasFace: !!face
+        };
+    });
+
+    write('/admin/users/:id/settle-and-deactivate', ['ADMIN'], async ({ db, a, req }) => {
+        const targetId = uuid(req.params.id);
+        const b = fields(req.body, ['reason'], []);
+        const reason = str(b.reason ?? 'Hoàn tiền tất toán số dư & thu hồi tài khoản sinh viên', 1000, 5);
+
+        const user = await one(db, 'SELECT * FROM campus.users WHERE id = $1', [targetId]);
+        const student = await optional(db, 'SELECT * FROM campus.students WHERE user_id = $1', [targetId]);
+        if (!student) {
+            reject(404, 'STUDENT_NOT_FOUND', 'Không tìm thấy hồ sơ sinh viên.');
+        }
+        const studentId = student.id;
+
+        // 1. Check wallet balance
+        const w = await optional(db, "SELECT w.*, a.balance_points FROM campus.wallets w JOIN campus.ledger_accounts a ON a.id = w.account_id WHERE w.student_id = $1 FOR UPDATE", [studentId]);
+        const currentBalance = w ? BigInt(w.balance_points) : 0n;
+        let refundedPoints = '0';
+
+        // 2. If balance > 0, settle/refund wallet balance to 0 via ADMIN_ADJUSTMENT
+        if (currentBalance > 0n) {
+            if (w.status !== 'ACTIVE') {
+                await db.query("UPDATE campus.wallets SET status = 'ACTIVE' WHERE id = $1", [w.id]);
+            }
+            const adjustmentId = id();
+            const delta = (-currentBalance).toString();
+            await db.query(
+                'INSERT INTO campus.wallet_adjustments(id,student_id,delta_points,reason,actor_id) VALUES($1,$2,$3,$4,$5)',
+                [adjustmentId, studentId, delta, `Tất toán hoàn tiền số dư: ${reason}`, a.id]
+            );
+            await wallet.post(db, 'ADMIN_ADJUSTMENT', studentId, currentBalance.toString(), { adjustment: adjustmentId });
+            refundedPoints = currentBalance.toString();
+        }
+
+        // 3. Revoke & remove RFID cards so UID can be re-registered immediately
+        await db.query('UPDATE campus.identity_assertions SET card_id = NULL WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.rfid_cards WHERE student_id = $1', [studentId]);
+
+        // 4. Remove Face biometric files and DB profiles so face can be re-registered
+        try {
+            const profilesDir = resolve(import.meta.dirname, '../../.work/face-profiles');
+            const npyPath = resolve(profilesDir, `${studentId}-v1.npy`);
+            const metaPath = resolve(profilesDir, `${studentId}-meta.json`);
+            const avatarPath = resolve(profilesDir, `${studentId}-avatar.jpg`);
+            if (existsSync(npyPath)) unlinkSync(npyPath);
+            if (existsSync(metaPath)) unlinkSync(metaPath);
+            if (existsSync(avatarPath)) unlinkSync(avatarPath);
+        } catch (e) {
+            console.warn('[SETTLE_DEACTIVATE] Face file cleanup error:', e);
+        }
+        await db.query('DELETE FROM campus.biometric_profiles WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.biometric_consents WHERE student_id = $1', [studentId]);
+
+        // 5. Revoke vehicle & parking passes
+        await db.query('DELETE FROM campus.parking_passes WHERE student_id = $1', [studentId]);
+        await db.query('DELETE FROM campus.vehicle_authorizations WHERE student_id = $1', [studentId]);
+
+        // 6. Freeze wallet
+        if (w) {
+            await db.query("UPDATE campus.wallets SET status = 'FROZEN' WHERE id = $1", [w.id]);
+        }
+
+        // 7. Deactivate user login & revoke sessions
+        await db.query("UPDATE campus.users SET status = 'DISABLED' WHERE id = $1", [targetId]);
+        await db.query('UPDATE campus.auth_sessions SET revoked_at = now() WHERE user_id = $1', [targetId]);
+
+        await audit(db, a, 'STUDENT_SETTLED_AND_DEACTIVATED', studentId, `Đã hoàn tiền ${refundedPoints} point và thu hồi tài khoản sinh viên ${student.student_code} (${user.name})`);
+
+        return {
+            settled: true,
+            refundedPoints,
+            studentId,
+            studentCode: student.student_code,
+            userName: user.name,
+            cardReleased: true,
+            faceReleased: true,
+            accountStatus: 'DISABLED'
+        };
+    });
+
+    write('/admin/users/:id', ['ADMIN'], async ({ db, a, req }) => {
+        const targetId = uuid(req.params.id);
+        const user = await one(db, 'SELECT * FROM campus.users WHERE id = $1', [targetId]);
+        if (user.id === a.id) {
+            reject(409, 'CANNOT_DELETE_SELF', 'Không thể tự xóa tài khoản đang đăng nhập.');
+        }
+        if (await optional(db, "SELECT 1 FROM campus.user_roles WHERE user_id = $1 AND role = 'ADMIN'", [targetId])) {
+            const count = await one(db, "SELECT count(*)::integer AS count FROM campus.users u JOIN campus.user_roles r ON r.user_id = u.id WHERE r.role = 'ADMIN' AND u.status = 'ACTIVE'");
+            if (count.count <= 1) {
+                reject(409, 'LAST_ADMIN', 'Không được xóa quản trị viên duy nhất.');
+            }
+        }
+        const student = await optional(db, 'SELECT id FROM campus.students WHERE user_id = $1', [targetId]);
+        if (student) {
+            await performDeleteStudent(db, a, student.id);
+            return { deleted: true, userId: targetId, studentId: student.id };
+        }
+        await db.query('DELETE FROM campus.notifications WHERE recipient_user_id = $1', [targetId]);
+        await db.query('DELETE FROM campus.outbox_events WHERE recipient_user_id = $1', [targetId]);
+        await db.query('DELETE FROM campus.auth_sessions WHERE user_id = $1', [targetId]);
+        await db.query('DELETE FROM campus.user_roles WHERE user_id = $1', [targetId]);
+        await db.query('DELETE FROM campus.users WHERE id = $1', [targetId]);
+        await audit(db, a, 'USER_DELETED', targetId, `Đã xóa tài khoản ${user.email} (${user.name})`);
+        return { deleted: true, userId: targetId };
+    }, 'delete');
+
+    write('/admin/students/:id', ['ADMIN'], async ({ db, a, req }) => {
+        const studentId = uuid(req.params.id);
+        return performDeleteStudent(db, a, studentId);
+    }, 'delete');
+
     read('/admin/roles', ['ADMIN'], async ({ db }) => ({ roles: (await db.query('SELECT * FROM roles')).rows, permissions: (await db.query('SELECT * FROM role_permissions')).rows }));
     read('/admin/devices', ['ADMIN'], async ({ db }) => (await db.query('SELECT id,name,kind,role,active,config_version,ack_version,last_seen_at,last_uid_mask,parking_lot_id,classroom_id FROM devices ORDER BY name')).rows);
     write('/admin/devices/:id/status', ['ADMIN'], async ({ db, a, req }) => { requirePermission(a, 'device.configure'); const b = fields(req.body, ['active', 'reason']); const active = bool(b.active), deviceId = uuid(req.params.id); await one(db, 'UPDATE devices SET active=$2 WHERE id=$1 RETURNING id', [deviceId, active]); if (!active)
@@ -404,7 +1037,212 @@ function registerAdmin(read: Read, write: Write) {
     write('/admin/devices', ['ADMIN'], async ({ db, a, req }) => { requirePermission(a, 'device.configure'); const b = fields(req.body, ['name', 'parkingLotId']); const deviceId = id(), secret = token(); await db.query("INSERT INTO devices(id,name,kind,token_hash,role,parking_lot_id) VALUES($1,$2,'RFID_READER',$3,'RFID_ENROLLMENT',$4)", [deviceId, str(b.name, 120), hash(secret), uuid(b.parkingLotId)]); await db.query("INSERT INTO device_role_bindings VALUES($1,$2,'RFID_ENROLLMENT',1,now(),NULL)", [id(), deviceId]); await audit(db, a, 'DEVICE_CREATED', deviceId); return { deviceId, deviceCredential: secret, displayOnce: true }; });
     write('/admin/devices/:id/rotate-credential', ['ADMIN'], async ({ db, a, req }) => { requirePermission(a, 'device.configure'); const b = fields(req.body, ['reason']); const secret = token(), deviceId = uuid(req.params.id); await one(db, 'UPDATE devices SET token_hash=$2 WHERE id=$1 RETURNING id', [deviceId, hash(secret)]); await audit(db, a, 'DEVICE_CREDENTIAL_ROTATED', deviceId, str(b.reason, 1000, 5)); return { deviceId, deviceCredential: secret, displayOnce: true }; });
     read('/admin/audit-logs', ['ADMIN'], async ({ db, a }) => { requirePermission(a, 'audit.read'); return (await db.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100')).rows; });
-    read('/admin/vehicles', ['ADMIN'], async ({ db }) => (await db.query('SELECT v.*,a.student_id,a.active AS authorized FROM vehicles v JOIN vehicle_authorizations a ON a.vehicle_id=v.id ORDER BY v.normalized_plate LIMIT 100')).rows);
+    read('/admin/vehicles', ['ADMIN'], async ({ db }) => (await db.query('SELECT v.*,a.student_id,a.active AS authorized,s.student_code,u.name AS student_name FROM vehicles v JOIN vehicle_authorizations a ON a.vehicle_id=v.id JOIN students s ON s.id=a.student_id JOIN users u ON u.id=s.user_id ORDER BY v.normalized_plate LIMIT 100')).rows);
+    write('/admin/vehicles', ['ADMIN'], async ({ db, a, req }) => {
+        const b = fields(req.body, ['studentId', 'plate', 'vehicleType']);
+        const student = await one(db, 'SELECT s.id, s.student_code, u.name FROM students s JOIN users u ON u.id=s.user_id WHERE s.id=$1', [uuid(b.studentId)]);
+        const raw = str(b.plate, 30);
+        const normalized = normalizePlate(raw);
+        const vehicleType = choice(b.vehicleType, ['MOTORCYCLE', 'CAR', 'BICYCLE'] as const);
+        let vehicle = await optional(db, 'SELECT * FROM vehicles WHERE normalized_plate=$1', [normalized]);
+        if (!vehicle) {
+            const vehicleId = id();
+            await db.query('INSERT INTO vehicles VALUES($1,$2,$3,$4,true)', [vehicleId, normalized, raw, vehicleType]);
+            vehicle = { id: vehicleId, normalized_plate: normalized, raw_plate: raw, vehicle_type: vehicleType, active: true };
+        } else {
+            await db.query('UPDATE vehicles SET active=true, raw_plate=$2, vehicle_type=$3 WHERE id=$1', [vehicle.id, raw, vehicleType]);
+        }
+        await db.query(
+            'INSERT INTO vehicle_authorizations(vehicle_id,student_id,active) VALUES($1,$2,true) ON CONFLICT(vehicle_id,student_id) DO UPDATE SET active=true',
+            [vehicle.id, student.id]
+        );
+        await audit(db, a, 'ADMIN_VEHICLE_REGISTERED', vehicle.id, `Đăng ký xe ${raw} cho sinh viên ${student.student_code} - ${student.name}`);
+        return { vehicleId: vehicle.id, authorized: true, studentCode: student.student_code, studentName: student.name, plate: raw };
+    });
+    write('/admin/enroll-student', ['ADMIN'], async ({ db, a, req }) => {
+        const b = fields(req.body, ['email', 'name', 'studentCode', 'password', 'rfidUid', 'faceImageBase64', 'initialPoints', 'plate', 'vehicleType'], ['email', 'name', 'studentCode', 'password']);
+        const email = str(b.email, 200).toLowerCase().trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+            reject(400, 'INVALID_EMAIL', 'Email không hợp lệ.');
+        const studentCode = str(b.studentCode, 50).trim().toUpperCase();
+        const name = str(b.name, 120).trim();
+        const password = str(b.password, 200, 6);
+
+        const existingEmail = await optional(db, 'SELECT 1 FROM campus.users WHERE email=$1', [email]);
+        if (existingEmail)
+            reject(409, 'EMAIL_EXISTS', 'Email này đã tồn tại trong hệ thống.');
+        const existingCode = await optional(db, 'SELECT 1 FROM campus.students WHERE student_code=$1', [studentCode]);
+        if (existingCode)
+            reject(409, 'STUDENT_CODE_EXISTS', 'Mã số sinh viên này đã tồn tại.');
+
+        let cardId: string | null = null;
+        let cleanUid: string | null = null;
+        let digest: string | null = null;
+        if (b.rfidUid && typeof b.rfidUid === 'string' && b.rfidUid.trim().length >= 4) {
+            cleanUid = b.rfidUid.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+            if (cleanUid.length % 2 !== 0) cleanUid = '0' + cleanUid;
+            if (cleanUid.length >= 8) {
+                digest = uidHash(cleanUid, cfg.cardKey);
+                const prior = await optional(
+                    db,
+                    `SELECT c.id, s.student_code, u.name
+                     FROM campus.rfid_cards c
+                     JOIN campus.students s ON s.id = c.student_id
+                     JOIN campus.users u ON u.id = s.user_id
+                     WHERE c.uid_hmac = $1 AND c.status = 'ACTIVE'`,
+                    [digest]
+                );
+                if (prior) {
+                    reject(
+                        409,
+                        'CARD_ALREADY_REGISTERED',
+                        `Thẻ RFID này (UID: ${cleanUid}) đã được đăng ký cho sinh viên ${prior.name} (MSSV: ${prior.student_code}). Không thể đăng ký trùng thẻ!`
+                    );
+                }
+            }
+        }
+
+        if (b.faceImageBase64 && typeof b.faceImageBase64 === 'string' && b.faceImageBase64.length > 50) {
+            try {
+                const existingMatch = await identifyFaceReal(b.faceImageBase64);
+                if (existingMatch.success && existingMatch.outcome === 'MATCH' && existingMatch.studentId) {
+                    const matchedStudent = await optional(
+                        db,
+                        `SELECT s.student_code, u.name
+                         FROM campus.students s
+                         JOIN campus.users u ON u.id = s.user_id
+                         WHERE s.id = $1`,
+                        [existingMatch.studentId]
+                    );
+                    const sName = matchedStudent?.name || existingMatch.name || 'Sinh viên';
+                    const sCode = matchedStudent?.student_code || existingMatch.studentCode || '';
+                    const scorePercent = ((existingMatch.score ?? 0) * 100).toFixed(1);
+                    reject(
+                        409,
+                        'FACE_ALREADY_REGISTERED',
+                        `Khuôn mặt này đã được đăng ký trong hệ thống cho sinh viên ${sName} (MSSV: ${sCode}) với độ khớp ${scorePercent}%. Không thể đăng ký trùng lặp!`
+                    );
+                }
+            } catch (checkErr: any) {
+                if (checkErr?.status === 409 || checkErr?.code === 'FACE_ALREADY_REGISTERED') {
+                    throw checkErr;
+                }
+                console.warn('[ENROLL_STUDENT] Face pre-check warning:', checkErr);
+            }
+        }
+
+        const userId = id();
+        await db.query('INSERT INTO campus.users(id,email,name,password_hash) VALUES($1,$2,$3,$4)', [userId, email, name, await passwordHash(password)]);
+        await db.query("INSERT INTO campus.user_roles(user_id,role) VALUES($1,'STUDENT')", [userId]);
+
+        const studentId = id(), accountId = id(), walletId = id();
+        await db.query('INSERT INTO campus.students(id,user_id,student_code,synthetic) VALUES($1,$2,$3,false)', [studentId, userId, studentCode]);
+        await db.query("INSERT INTO campus.ledger_accounts(id,kind) VALUES($1,'STUDENT')", [accountId]);
+        await db.query('INSERT INTO campus.wallets(id,student_id,account_id) VALUES($1,$2,$3)', [walletId, studentId, accountId]);
+
+        const pinHash = await passwordHash('123456');
+        await db.query('INSERT INTO campus.wallet_security_settings(student_id,pin_hash) VALUES($1,$2)', [studentId, pinHash]);
+
+        const initPts = b.initialPoints ? points(b.initialPoints, 100000000n) : '0';
+        if (BigInt(initPts) > 0n) {
+            const topupOrderId = id();
+            const conversion = await one(db, 'SELECT * FROM campus.point_conversion_policies WHERE active');
+            await db.query(
+                "INSERT INTO campus.topup_orders(id,wallet_id,requested_vnd,amount_points,conversion_version,status,provider,expires_at) VALUES($1,$2,$3,$4,$5,'PENDING','MOCK',now()+interval '1 hour')",
+                [topupOrderId, walletId, initPts, initPts, conversion.version]
+            );
+            await wallet.post(db, 'TOP_UP', studentId, initPts, { topup: topupOrderId });
+            await db.query("UPDATE campus.topup_orders SET status='SUCCEEDED' WHERE id=$1", [topupOrderId]);
+        }
+
+        if (digest) {
+            cardId = id();
+            await db.query("INSERT INTO campus.rfid_cards(id,student_id,uid_hmac,status) VALUES($1,$2,$3,'ACTIVE')", [cardId, studentId, digest]);
+        }
+
+        for (const purpose of ['PARKING', 'CANTEEN', 'ATTENDANCE']) {
+            const consentId = id();
+            await db.query("INSERT INTO campus.biometric_consents(id,student_id,purpose,policy_version,source) VALUES($1,$2,$3,'camera-s3-v1','REAL')", [consentId, studentId, purpose]);
+            await db.query("INSERT INTO campus.biometric_profiles(id,student_id,consent_id,purpose,source,model_version,status) VALUES($1,$2,$3,$4,'REAL','sface-2021dec','ACTIVE')", [id(), studentId, consentId, purpose]);
+        }
+
+        if (b.faceImageBase64 && typeof b.faceImageBase64 === 'string' && b.faceImageBase64.length > 50) {
+            try {
+                const enrollAiRes = await enrollFaceReal(
+                    studentId,
+                    studentCode,
+                    name,
+                    b.faceImageBase64
+                );
+                if (enrollAiRes.success) {
+                    console.log(`[FACE_AI] Enrolled real SFace vector for student ${studentCode} (${name}), score=${enrollAiRes.score}`);
+                } else {
+                    console.warn(`[FACE_AI] Face enrollment warning: ${enrollAiRes.message || enrollAiRes.error}`);
+                }
+            } catch (aiErr) {
+                console.error('[FACE_AI] Error enrolling real face:', aiErr);
+            }
+        } else {
+            try {
+                const profilesDir = resolve(import.meta.dirname, '../../.work/face-profiles');
+                if (!existsSync(profilesDir)) {
+                    mkdirSync(profilesDir, { recursive: true });
+                }
+                writeFileSync(resolve(profilesDir, `${studentId}-meta.json`), JSON.stringify({
+                    studentId,
+                    studentCode,
+                    name,
+                    enrolledAt: new Date().toISOString(),
+                    model: 'SFace',
+                    source: 'ADMIN_ENROLLMENT'
+                }, null, 2), 'utf8');
+            } catch {}
+        }
+
+        let vehicleId: string | null = null;
+        if (b.plate && typeof b.plate === 'string' && b.plate.trim().length > 0) {
+            const rawPlate = b.plate.trim();
+            const normalized = normalizePlate(rawPlate);
+            const vType = choice(b.vehicleType ?? 'MOTORCYCLE', ['MOTORCYCLE', 'CAR', 'BICYCLE'] as const);
+            let vehicle = await optional(db, 'SELECT * FROM campus.vehicles WHERE normalized_plate=$1', [normalized]);
+            if (!vehicle) {
+                vehicleId = id();
+                await db.query('INSERT INTO campus.vehicles VALUES($1,$2,$3,$4,true)', [vehicleId, normalized, rawPlate, vType]);
+            } else {
+                vehicleId = vehicle.id;
+                await db.query('UPDATE campus.vehicles SET active=true, raw_plate=$2, vehicle_type=$3 WHERE id=$1', [vehicleId, rawPlate, vType]);
+            }
+            await db.query(
+                'INSERT INTO campus.vehicle_authorizations(vehicle_id,student_id,active) VALUES($1,$2,true) ON CONFLICT(vehicle_id,student_id) DO UPDATE SET active=true',
+                [vehicleId, studentId]
+            );
+        }
+
+        await audit(db, a, 'ADMIN_STUDENT_ENROLLED_ALL_IN_ONE', studentId, `Đăng ký SV ${studentCode} - ${name} (${email})`, {
+            userId,
+            studentId,
+            studentCode,
+            cardId,
+            rfidUid: cleanUid,
+            vehicleId,
+            initialPoints: initPts,
+        });
+
+        return {
+            userId,
+            studentId,
+            studentCode,
+            email,
+            name,
+            walletId,
+            initialPoints: initPts,
+            cardId,
+            rfidUid: cleanUid,
+            vehicleId,
+            faceEnrolled: true,
+            message: 'Đăng ký sinh viên trọn gói thành công!',
+        };
+    });
     read('/admin/parking-fee-policies', ['ADMIN'], async ({ db }) => (await db.query('SELECT * FROM parking_fee_policies ORDER BY created_at DESC')).rows);
     write('/admin/parking-fee-policies', ['ADMIN'], async ({ db, a, req }) => {
         const b = fields(req.body, ['lotId', 'version', 'mode', 'unitPoints', 'graceMinutes', 'dailyCap'], ['lotId', 'version', 'mode', 'unitPoints', 'graceMinutes']);

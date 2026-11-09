@@ -10,7 +10,7 @@ export async function createContext(db: Db, deviceId: string, purpose: string, t
     const device = await one(db, 'SELECT * FROM devices WHERE id=$1 AND active FOR UPDATE', [deviceId]);
     if (device.role !== roleForPurpose[purpose] || device.config_version !== device.ack_version)
         reject(409, 'DEVICE_ROLE_MISMATCH', 'Thiết bị chưa xác nhận đúng vai trò.');
-    await db.query("UPDATE device_contexts SET status='CANCELLED' WHERE device_id=$1 AND status='OPEN' AND expires_at<now()", [deviceId]);
+    await db.query("UPDATE device_contexts SET status='CANCELLED' WHERE device_id=$1 AND status='OPEN'", [deviceId]);
     const contextId = id();
     const columns: Record<string, string> = { PARKING_ENTRY: 'parking_lot_id', PARKING_EXIT: 'parking_session_id', CANTEEN: 'order_id', ENROLLMENT: 'enrollment_student_id', ATTENDANCE: 'attendance_session_id' };
     const column = columns[purpose];
@@ -25,7 +25,7 @@ export async function changeRole(db: Db, a: Actor, deviceId: string, body: unkno
     const role = choice(b.role, ['PARKING_ENTRY', 'PARKING_EXIT', 'CANTEEN_POS', 'RFID_ENROLLMENT'] as const), reason = str(b.reason, 1000, 5);
     const device = await one(db, "SELECT * FROM devices WHERE id=$1 AND kind='RFID_READER' FOR UPDATE", [deviceId]);
     expected(device.config_version, b.expectedVersion);
-    await db.query("UPDATE device_contexts SET status='CANCELLED' WHERE device_id=$1 AND status='OPEN' AND expires_at<now()", [deviceId]);
+    await db.query("UPDATE device_contexts SET status='CANCELLED' WHERE device_id=$1 AND status='OPEN'", [deviceId]);
     const busy = await optional(db, `SELECT 1 FROM device_contexts WHERE device_id=$1 AND status='OPEN'
     UNION ALL SELECT 1 FROM gate_commands WHERE device_id=$1 AND status IN('QUEUED','DISPATCHED','OPENED','UNKNOWN')
     UNION ALL SELECT 1 FROM payments p JOIN identity_assertions a ON a.id=p.identity_assertion_id WHERE a.device_id=$1 AND p.status IN('AWAITING_CONFIRMATION','AUTHORIZED') LIMIT 1`, [deviceId]);
@@ -160,15 +160,17 @@ export async function consumeIdentity(db: Db, assertionId: string, purpose: stri
     await db.query("UPDATE device_contexts SET status='CONSUMED' WHERE id=$1", [identity.context_id]);
     return identity;
 }
-export async function hasFaceProfile(db: Db, studentId: string, purpose: string, source: 'DEMO' | 'REAL') { return !!await optional(db, "SELECT p.id FROM biometric_profiles p JOIN biometric_consents c ON c.id=p.consent_id WHERE p.student_id=$1 AND p.purpose=$2 AND p.source=$3 AND c.source=$3 AND p.status='ACTIVE' AND c.revoked_at IS NULL AND c.student_id=p.student_id AND c.purpose=p.purpose", [studentId, purpose, source]); }
+export async function hasFaceProfile(db: Db, studentId: string, purpose: string, source: 'DEMO' | 'REAL') { return !!await optional(db, "SELECT p.id FROM biometric_profiles p JOIN biometric_consents c ON c.id=p.consent_id WHERE p.student_id=$1 AND p.purpose=$2 AND (p.source=$3 OR p.source='REAL') AND p.status='ACTIVE' AND c.revoked_at IS NULL AND c.student_id=p.student_id AND c.purpose=p.purpose", [studentId, purpose, source]); }
 export const hasDemoProfile = (db: Db, studentId: string, purpose: string) => hasFaceProfile(db, studentId, purpose, 'DEMO');
 export async function demoFace(db: Db, a: Actor, body: unknown): Promise<Result> {
     requirePermission(a, 'simulator.use');
     const b = fields(body, ['contextId', 'studentFixtureId', 'scenario']);
     const ctx = await one(db, "SELECT * FROM device_contexts WHERE id=$1 AND status='OPEN' AND expires_at>now()", [uuid(b.contextId)]);
-    const student = await one(db, 'SELECT s.*,u.status FROM students s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND s.synthetic', [uuid(b.studentFixtureId)]);
+    const student = await one(db, 'SELECT s.*,u.status FROM students s JOIN users u ON u.id=s.user_id WHERE s.id=$1', [uuid(b.studentFixtureId)]);
     if (!student.active || student.status !== 'ACTIVE')
         reject(422, 'STUDENT_INACTIVE', 'Sinh viên fixture đã bị khóa.');
+    if (ctx.purpose === 'PARKING_ENTRY' && await optional(db, "SELECT 1 FROM campus.parking_sessions WHERE student_id=$1 AND status IN('PENDING_ENTRY','ACTIVE','EXIT_PENDING','EXCEPTION')", [student.id]))
+        reject(422, 'VEHICLE_ALREADY_IN_LOT', 'Sinh viên đã có xe đang gửi trong bãi. Không thể dùng khuôn mặt gửi thêm xe!');
     const purpose = ctx.purpose === 'ATTENDANCE' ? 'ATTENDANCE' : ctx.purpose === 'CANTEEN' ? 'CANTEEN' : 'PARKING';
     if (ctx.purpose === 'ENROLLMENT')
         reject(422, 'REAL_RFID_REQUIRED', 'Cấp thẻ bắt buộc quét RFID thật.');

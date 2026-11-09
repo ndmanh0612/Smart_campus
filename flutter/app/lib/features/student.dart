@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../core/campus_api.dart';
 import 'shared.dart';
+import 'live_face_camera.dart';
 
 class StudentHome extends StatelessWidget {
   final CampusApi api;
@@ -91,18 +92,23 @@ class WalletPage extends StatelessWidget {
     api: api,
     paths: const [
       '/me/wallet',
+      '/me/wallet/spending-report',
       '/me/payment-requests',
       '/me/wallet/ledger',
       '/me/topups',
     ],
     builder: (context, data) {
       final wallet = data['/me/wallet'] as Map;
+      final rawReport = data['/me/wallet/spending-report'];
+      final report = rawReport is Map ? rawReport : null;
+      final summary = report?['summary'] is Map ? report!['summary'] as Map : null;
+      final transactions = rows(report?['transactions'] ?? data['/me/wallet/ledger']);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SectionTitle(
             'Ví point & thanh toán',
-            'Xem nội dung và số point trước khi xác nhận bằng PIN trên tài khoản của bạn.',
+            'Số dư khả dụng dùng chung cho gửi xe và căng tin. Quẹt thẻ sinh viên thanh toán trực tiếp.',
           ),
           Surface(
             child: Wrap(
@@ -134,82 +140,273 @@ class WalletPage extends StatelessWidget {
             ),
           ),
           Surface(
-            title: 'Yêu cầu cần bạn xác nhận',
-            child: Column(
-              children: rows(data['/me/payment-requests'])
-                  .map(
-                    (p) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.shield_outlined),
-                      title: Text(
-                        '${p['orderId'] != null ? 'Đơn cantin' : 'Phí gửi xe'} • ${pointText(p['amountPoints'])}',
-                      ),
-                      subtitle: Text(display(p['status'])),
-                      trailing: ActionButton('Xác nhận', () async {
-                        final form = await formDialog(
-                          context,
-                          'Xác nhận ${pointText(p['amountPoints'])}',
-                          const [
-                            FormFieldSpec('pin', 'PIN ví', kind: 'password'),
-                          ],
-                        );
-                        if (form == null) return;
-                        await api.request(
-                          '/me/payments/${p['id']}/approvals',
-                          method: 'POST',
-                          body: {
-                            ...form,
-                            'expectedSourceVersion': p['sourceVersion'],
-                          },
-                        );
-                        api.changed();
-                        if (context.mounted) {
-                          success(
+              title: 'Yêu cầu cần bạn xác nhận',
+              child: Column(
+                children: rows(data['/me/payment-requests'])
+                    .map(
+                      (p) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.shield_outlined),
+                        title: Text(
+                          '${p['orderId'] != null ? 'Đơn cantin' : 'Phí gửi xe'} • ${pointText(p['amountPoints'])}',
+                        ),
+                        subtitle: Text(display(p['status'])),
+                        trailing: ActionButton('Xác nhận', () async {
+                          final form = await formDialog(
                             context,
-                            'Đã xác nhận. Nhân viên sẽ hoàn tất giao dịch.',
+                            'Xác nhận ${pointText(p['amountPoints'])}',
+                            [
+                              FormFieldSpec('pin', 'PIN ví', kind: 'password', initial: api.demoPin ?? '295417'),
+                            ],
                           );
-                        }
-                      }, icon: Icons.check),
-                    ),
+                          if (form == null) return;
+                          await api.request(
+                            '/me/payments/${p['id']}/approvals',
+                            method: 'POST',
+                            body: {
+                              ...form,
+                              'expectedSourceVersion': p['sourceVersion'],
+                            },
+                          );
+                          api.changed();
+                          if (context.mounted) {
+                            success(
+                              context,
+                              'Đã xác nhận. Giao dịch hoàn tất.',
+                            );
+                          }
+                        }, icon: Icons.check),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          Surface(
+            title: 'Báo cáo chi tiêu & Nạp nhanh',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Nạp tiền nhanh vào ví:',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xff475569)),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    for (final amt in [20000, 50000, 100000, 200000])
+                      ActionChip(
+                        avatar: const Icon(Icons.add_circle_outline, size: 16, color: Color(0xff16a34a)),
+                        label: Text(
+                          '+${pointText(amt)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xff15803d)),
+                        ),
+                        backgroundColor: const Color(0xfff0fdf4),
+                        side: const BorderSide(color: Color(0xffbbf7d0)),
+                        onPressed: () async {
+                          await api.request(
+                            '/me/topups',
+                            method: 'POST',
+                            body: {'requestedVnd': amt.toString()},
+                          );
+                          api.changed();
+                          if (context.mounted) {
+                            success(context, 'Đã nạp thành công ${pointText(amt)} vào ví!');
+                          }
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Thống kê chi tiêu:',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xff475569)),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    _statCard(
+                  'Tổng chi tiêu',
+                  summary?['totalSpent'] ?? '0',
+                  const Color(0xff0f766e),
+                  Icons.shopping_cart_checkout,
+                  'Căn tin & Gửi xe',
+                ),
+                _statCard(
+                  'Tổng đã nạp',
+                  summary?['totalTopUp'] ?? '0',
+                  const Color(0xff16a34a),
+                  Icons.arrow_downward,
+                  'Tổng tích lũy',
+                ),
+                _statCard(
+                  'Chi Căng tin',
+                  summary?['totalCanteen'] ?? '0',
+                  const Color(0xffea580c),
+                  Icons.restaurant,
+                  'Ăn uống & mua sắm',
+                ),
+                _statCard(
+                  'Phí Gửi xe',
+                  summary?['totalParking'] ?? '0',
+                  const Color(0xff2563eb),
+                  Icons.local_parking,
+                  'Lượt vào/ra bãi xe',
+                ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Surface(
+            title: 'Lịch sử giao dịch chi tiêu',
+            child: transactions.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: Text('Chưa có giao dịch chi tiêu nào.')),
                   )
-                  .toList(),
-            ),
-          ),
-          Surface(
-            title: 'Sổ cái point',
-            child: RecordTable(
-              data: rows(data['/me/wallet/ledger']),
-              columns: const {
-                'type': 'Loại giao dịch',
-                'deltaPoints': 'Thay đổi point',
-                'createdAt': 'Thời gian',
-              },
-            ),
-          ),
-          Surface(
-            title: 'Lịch sử nạp MOCK',
-            child: RecordTable(
-              data: rows(data['/me/topups']),
-              columns: const {
-                'requestedVnd': 'VND thử nghiệm',
-                'amountPoints': 'Point',
-                'status': 'Trạng thái',
-                'provider': 'Nguồn',
-              },
-            ),
+                : Column(
+                    children: transactions.map((t) {
+                      final type = t['type']?.toString() ?? '';
+                      final isTopUp = type == 'TOP_UP';
+                      final isCanteen = type == 'CANTEEN_PAYMENT';
+                      final isParking = type == 'PARKING_PAYMENT';
+                      final isRefund = type == 'REFUND';
+
+                      final icon = isTopUp
+                          ? Icons.add_circle
+                          : isCanteen
+                          ? Icons.restaurant
+                          : isParking
+                          ? Icons.local_parking
+                          : isRefund
+                          ? Icons.replay
+                          : Icons.account_balance_wallet;
+
+                      final color = isTopUp
+                          ? const Color(0xff16a34a)
+                          : isCanteen
+                          ? const Color(0xffea580c)
+                          : isParking
+                          ? const Color(0xff2563eb)
+                          : isRefund
+                          ? const Color(0xff9333ea)
+                          : const Color(0xff64748b);
+
+                      final title = isTopUp
+                          ? 'Nạp tiền ví'
+                          : isCanteen
+                          ? 'Thanh toán Căn tin'
+                          : isParking
+                          ? 'Phí gửi xe ${t['entryPlate'] != null ? '(${t['entryPlate']})' : ''}'
+                          : isRefund
+                          ? 'Hoàn tiền'
+                          : display(type);
+
+                      final pts = t['amountPoints'] ?? t['deltaPoints'] ?? '0';
+                      final prefix = isTopUp || isRefund ? '+' : '-';
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                        decoration: const BoxDecoration(
+                          border: Border(bottom: BorderSide(color: Color(0xfff1f5f9))),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(icon, color: color, size: 22),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    display(t['createdAt']),
+                                    style: const TextStyle(fontSize: 12, color: Color(0xff64748b)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              '$prefix${pointText(pts)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                                color: isTopUp || isRefund ? const Color(0xff16a34a) : const Color(0xffdc2626),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
           ),
         ],
       );
     },
   );
-  Widget _amount(String title, dynamic value) => Column(
+
+  Widget _statCard(String title, dynamic value, Color color, IconData icon, String subtitle) => Container(
+    width: 220,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: color.withValues(alpha: 0.25)),
+      boxShadow: [
+        BoxShadow(
+          color: color.withValues(alpha: 0.04),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(title, style: const TextStyle(fontSize: 13, color: Color(0xff64748b), fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: 4),
+            Icon(icon, color: color, size: 20),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          pointText(value),
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: color),
+        ),
+        const SizedBox(height: 4),
+        Text(subtitle, style: const TextStyle(fontSize: 11, color: Color(0xff94a3b8))),
+      ],
+    ),
+  );
+
+  Widget _amount(String title, dynamic value, {Color? color}) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(title),
       const SizedBox(height: 8),
       Text(
         pointText(value),
-        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: color),
       ),
     ],
   );
@@ -379,14 +576,217 @@ class ConsentPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DataPanel(
     api: api,
-    paths: const ['/me/biometric-consents', '/me/biometric-profiles'],
+    paths: const [
+      '/me/biometric-consents',
+      '/me/biometric-profiles',
+      '/me/face-pilot',
+    ],
     builder: (context, data) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SectionTitle(
-          'Dữ liệu khuôn mặt',
-          'Hiện chỉ dùng hồ sơ mẫu DEMO, không thu ảnh hay embedding thật. Bạn có thể thu hồi đồng ý theo từng mục đích.',
+          'Đăng ký khuôn mặt',
+          'Quản lý mẫu thử trên camera OV3660 và hồ sơ mô phỏng.',
         ),
+        Builder(
+          builder: (context) {
+            final faceInfo = data['/me/face-pilot'] as Map? ?? {};
+            final studentCode = faceInfo['studentCode']?.toString() ??
+                api.user?['studentCode']?.toString() ??
+                '---';
+            final studentName = faceInfo['studentName']?.toString() ??
+                api.user?['name']?.toString() ??
+                'Sinh viên';
+            final isEnrolled = faceInfo['enrolled'] == true;
+            return Surface(
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    radius: 22,
+                    backgroundColor: Color(0xffccfbf1),
+                    child: Icon(Icons.person, color: Color(0xff0f766e)),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          studentName,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Mã số sinh viên (MSSV): $studentCode',
+                          style: const TextStyle(
+                            color: Color(0xff64748b),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isEnrolled
+                          ? const Color(0xffdcfce7)
+                          : const Color(0xfff1f5f9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isEnrolled
+                            ? const Color(0xff86efac)
+                            : const Color(0xffcbd5e1),
+                      ),
+                    ),
+                    child: Text(
+                      isEnrolled ? 'ĐÃ CÓ MẪU (SFace)' : 'CHƯA ĐĂNG KÝ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isEnrolled
+                            ? const Color(0xff166534)
+                            : const Color(0xff64748b),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        if ((data['/me/face-pilot'] as Map?)?['enabled'] == true)
+          Surface(
+            title: 'Thử nhận dạng bằng camera thật',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Đứng trước camera, đủ sáng và để một khuôn mặt trong khung. '
+                  'Thử nghiệm chỉ lưu mẫu đặc trưng trên máy chủ local. '
+                  'Kết quả chưa dùng để mở cổng hoặc thanh toán.',
+                ),
+                const SizedBox(height: 12),
+                LiveFaceCamera(
+                  api,
+                  enrolled: (data['/me/face-pilot'] as Map)['enrolled'] == true,
+                ),
+                const SizedBox(height: 12),
+                if ((data['/me/face-pilot'] as Map)['enrolled'] == true)
+                  ActionButton('Xóa mẫu thật', () async {
+                    await api.request(
+                      '/me/face-pilot',
+                      method: 'POST',
+                      body: {'action': 'erase'},
+                    );
+                    api.changed();
+                  }, outlined: true)
+                else
+                  ActionButton('Đăng ký khuôn mặt bằng OV3660', () async {
+                    final consent = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Đồng ý chụp mẫu khuôn mặt'),
+                        content: const Text(
+                          'Camera sẽ chụp một ảnh ngay khi bạn đồng ý. App lưu mẫu đặc trưng trên máy chủ thử nghiệm. Bạn có thể xóa mẫu bất cứ lúc nào.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('Hủy'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            child: const Text('Đồng ý và chụp'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (consent != true) return;
+                    await api.request(
+                      '/me/face-pilot',
+                      method: 'POST',
+                      body: {'action': 'enroll', 'consent': true},
+                    );
+                    api.changed();
+                    if (context.mounted) {
+                      success(
+                        context,
+                        'Đã lưu mẫu. App sẽ tự nhận dạng trên video.',
+                      );
+                    }
+                  }, icon: Icons.camera_alt_outlined),
+              ],
+            ),
+          ),
+        if (!rows(data['/me/biometric-profiles']).any(
+          (profile) =>
+              profile['purpose'] == 'PARKING' && profile['status'] == 'ACTIVE',
+        ))
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ActionButton('Đăng ký khuôn mặt gửi xe (DEMO)', () async {
+              final agreed = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Đồng ý đăng ký hồ sơ mẫu'),
+                  content: const Text(
+                    'Hồ sơ này dùng để thử lựa chọn quên thẻ tại bãi xe. '
+                    'Bản DEMO không thu ảnh hay dữ liệu sinh trắc. '
+                    'Bạn có thể thu hồi đồng ý bất cứ lúc nào.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Hủy'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Đồng ý đăng ký'),
+                    ),
+                  ],
+                ),
+              );
+              if (agreed != true) return;
+              final consents = rows(
+                await api.request('/me/biometric-consents'),
+              );
+              final consent =
+                  consents
+                      .where(
+                        (row) =>
+                            row['purpose'] == 'PARKING' &&
+                            row['source'] == 'DEMO' &&
+                            row['revokedAt'] == null,
+                      )
+                      .firstOrNull ??
+                  await api.request(
+                    '/me/biometric-consents',
+                    method: 'POST',
+                    body: {
+                      'purpose': 'PARKING',
+                      'policyVersion': 'fixture-v1',
+                      'explicitConsent': true,
+                    },
+                  );
+              await api.request(
+                '/me/biometric-profiles/enrollment-requests',
+                method: 'POST',
+                body: {'consentId': consent['id']},
+              );
+              api.changed();
+              if (context.mounted) {
+                success(context, 'Đã đăng ký hồ sơ khuôn mặt DEMO cho bãi xe.');
+              }
+            }, icon: Icons.face),
+          ),
         Align(
           alignment: Alignment.centerLeft,
           child: ActionButton(
@@ -422,8 +822,7 @@ class ConsentPage extends StatelessWidget {
               'grantedAt': 'Ngày đồng ý',
               'revokedAt': 'Thu hồi',
             },
-            actions: (r) => r['revokedAt'] == null
-                ? Wrap(
+            actions: (r) => r['revokedAt'] == null ? Row(mainAxisSize: MainAxisSize.min, 
                     spacing: 8,
                     children: [
                       if (!rows(data['/me/biometric-profiles']).any(

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../core/report_export.dart';
 import '../core/campus_api.dart';
 import 'shared.dart';
@@ -86,7 +86,7 @@ class _AttendancePageState extends State<AttendancePage> {
                 'openedAt': 'Mở phiên',
                 'lateAfter': 'Ngưỡng muộn',
               },
-              actions: (s) => Wrap(
+              actions: (s) => Row(mainAxisSize: MainAxisSize.min,
                 spacing: 8,
                 children: [
                   TextButton(

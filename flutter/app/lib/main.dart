@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'core/campus_api.dart';
 import 'features/shared.dart';
 import 'features/student.dart';
+import 'features/card_enrollment.dart';
 import 'features/parking.dart';
 import 'features/canteen.dart';
 import 'features/attendance.dart';
@@ -74,6 +75,44 @@ class _LoginPageState extends State<LoginPage> {
   final form = GlobalKey<FormState>();
   bool busy = false;
   String? error;
+  Map<String, dynamic>? demoData;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(loadDemo());
+  }
+
+  Future<void> loadDemo() async {
+    final d = await widget.api.fetchDemoAccounts();
+    if (mounted && d != null) {
+      setState(() => demoData = d);
+    }
+  }
+
+  Future<void> quickLogin(String accountEmail) async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      error = null;
+      email.text = accountEmail;
+      if (demoData?['password'] != null) {
+        password.text = demoData!['password'] as String;
+      }
+    });
+    try {
+      await widget.api.demoLogin(accountEmail);
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
+
   @override
   void dispose() {
     email.dispose();
@@ -172,7 +211,8 @@ class _LoginPageState extends State<LoginPage> {
                             fontSize: 16,
                           ),
                         ),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 24),
+                        _buildDemoAccounts(),
                         TextFormField(
                           controller: email,
                           autofillHints: const [AutofillHints.username],
@@ -253,6 +293,70 @@ class _LoginPageState extends State<LoginPage> {
       ),
     ),
   );
+
+  Widget _buildDemoAccounts() {
+    final accounts = [
+      (role: 'ADMIN', email: 'admin@campus.test', label: 'Admin', icon: Icons.admin_panel_settings_outlined),
+      (role: 'STUDENT', email: 'student@campus.test', label: 'Sinh viên 1', icon: Icons.school_outlined),
+      (role: 'STUDENT', email: 'student2@campus.test', label: 'Sinh viên 2', icon: Icons.school),
+      (role: 'LECTURER', email: 'lecturer@campus.test', label: 'Giảng viên', icon: Icons.person_outline),
+      (role: 'PARKING_STAFF', email: 'parking@campus.test', label: 'Bãi xe', icon: Icons.local_parking_outlined),
+      (role: 'CANTEEN_STAFF', email: 'canteen@campus.test', label: 'Căn tin', icon: Icons.restaurant_outlined),
+    ];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xfff0fdf4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xffbbf7d0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.flash_on, size: 16, color: Color(0xff16a34a)),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Tài khoản demo',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: Color(0xff15803d),
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (demoData?['pin'] != null)
+                Text(
+                  'PIN: ${demoData!['pin']}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xff166534),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: accounts.map((acc) => ActionChip(
+              avatar: Icon(acc.icon, size: 16, color: const Color(0xff0f766e)),
+              label: Text(acc.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              backgroundColor: Colors.white,
+              elevation: 1,
+              side: const BorderSide(color: Color(0xffcbd5e1)),
+              onPressed: busy ? null : () => unawaited(quickLogin(acc.email)),
+            )).toList(),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class CampusShell extends StatefulWidget {
@@ -287,7 +391,7 @@ class _CampusShellState extends State<CampusShell> {
         ),
         (label: 'Lịch sử dịch vụ', icon: Icons.history, page: HistoryPage(api)),
         (
-          label: 'Dữ liệu khuôn mặt',
+          label: 'Đăng ký khuôn mặt',
           icon: Icons.verified_user_outlined,
           page: ConsentPage(api),
         ),
@@ -323,6 +427,11 @@ class _CampusShellState extends State<CampusShell> {
         (label: 'Báo cáo', icon: Icons.bar_chart, page: ReportsPage(api)),
       if (api.roles.contains('ADMIN'))
         ...([
+          (
+            label: 'Đăng ký thẻ',
+            icon: Icons.nfc,
+            page: CardEnrollmentPage(api),
+          ),
           (
             label: 'Quản trị',
             icon: Icons.admin_panel_settings_outlined,
@@ -475,7 +584,84 @@ class _CampusShellState extends State<CampusShell> {
                       ),
                       const SizedBox(width: 12),
                       if (wide) Text(api.user?['name']?.toString() ?? ''),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
+                      PopupMenuButton<String>(
+                        tooltip: 'Chuyển nhanh tài khoản demo',
+                        icon: const Icon(Icons.switch_account_outlined),
+                        onSelected: (targetEmail) async {
+                          try {
+                            await api.demoLogin(targetEmail);
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Lỗi: $e')),
+                              );
+                            }
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 'admin@campus.test',
+                            child: Row(
+                              children: [
+                                Icon(Icons.admin_panel_settings_outlined, size: 18),
+                                SizedBox(width: 8),
+                                Text('Quản trị viên (Admin)'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'student@campus.test',
+                            child: Row(
+                              children: [
+                                Icon(Icons.school_outlined, size: 18),
+                                SizedBox(width: 8),
+                                Text('Sinh viên 1 (DEMO001)'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'student2@campus.test',
+                            child: Row(
+                              children: [
+                                Icon(Icons.school, size: 18),
+                                SizedBox(width: 8),
+                                Text('Sinh viên 2 (DEMO002)'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'lecturer@campus.test',
+                            child: Row(
+                              children: [
+                                Icon(Icons.person_outline, size: 18),
+                                SizedBox(width: 8),
+                                Text('Giảng viên'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'parking@campus.test',
+                            child: Row(
+                              children: [
+                                Icon(Icons.local_parking_outlined, size: 18),
+                                SizedBox(width: 8),
+                                Text('Nhân viên Bãi xe'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'canteen@campus.test',
+                            child: Row(
+                              children: [
+                                Icon(Icons.restaurant_outlined, size: 18),
+                                SizedBox(width: 8),
+                                Text('Thu ngân Căn tin'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                       IconButton(
                         tooltip: 'Đăng xuất',
                         onPressed: () async {

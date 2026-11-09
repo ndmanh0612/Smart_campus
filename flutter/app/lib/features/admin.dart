@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../core/campus_api.dart';
 import 'shared.dart';
+import 'enrollment_wizard.dart';
 
 class AdminPage extends StatelessWidget {
   final CampusApi api;
@@ -16,6 +17,7 @@ class AdminPage extends StatelessWidget {
       '/parking/lots',
       '/admin/wallet-reconciliation',
       '/admin/roles',
+      '/admin/face-profiles',
     ],
     builder: (context, data) {
       final users = rows(data['/admin/users']),
@@ -33,6 +35,11 @@ class AdminPage extends StatelessWidget {
               spacing: 12,
               runSpacing: 12,
               children: [
+                ActionButton(
+                  'Đăng ký sinh viên trọn gói',
+                  () => showEnrollStudentWizardDialog(context, api),
+                  icon: Icons.how_to_reg,
+                ),
                 ActionButton(
                   'Thêm tài khoản',
                   () => submitForm(
@@ -138,30 +145,52 @@ class AdminPage extends StatelessWidget {
               columns: const {
                 'name': 'Họ tên',
                 'email': 'Email',
+                'studentCode': 'MSSV',
                 'roles': 'Vai trò',
                 'status': 'Trạng thái',
               },
-              actions: (u) => ActionButton(
-                'Trạng thái',
-                () => submitForm(
-                  context,
-                  api,
-                  'Trạng thái tài khoản',
-                  '/admin/users/${u['id']}/status',
-                  const [
-                    FormFieldSpec(
-                      'status',
-                      'Trạng thái',
-                      options: {
-                        'ACTIVE': 'Hoạt động',
-                        'LOCKED': 'Tạm khóa',
-                        'DISABLED': 'Ngừng hoạt động',
-                      },
+              actions: (u) => Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ActionButton(
+                    'Trạng thái',
+                    () => submitForm(
+                      context,
+                      api,
+                      'Trạng thái tài khoản',
+                      '/admin/users/${u['id']}/status',
+                      const [
+                        FormFieldSpec(
+                          'status',
+                          'Trạng thái',
+                          options: {
+                            'ACTIVE': 'Hoạt động',
+                            'LOCKED': 'Tạm khóa',
+                            'DISABLED': 'Ngừng hoạt động',
+                          },
+                        ),
+                        FormFieldSpec('reason', 'Lý do', kind: 'multiline'),
+                      ],
                     ),
-                    FormFieldSpec('reason', 'Lý do', kind: 'multiline'),
-                  ],
-                ),
-                outlined: true,
+                    outlined: true,
+                  ),
+                  const SizedBox(width: 8),
+                  if (u['id'] != api.user?['id'])
+                    ActionButton(
+                      'Xóa',
+                      () => _showDeleteOrSettleDialog(
+                        context,
+                        api,
+                        userId: u['id'].toString(),
+                        userName: u['name'].toString(),
+                        userEmail: u['email']?.toString(),
+                        studentId: u['studentId']?.toString(),
+                        studentCode: u['studentCode']?.toString(),
+                      ),
+                      outlined: true,
+                      icon: Icons.delete_outline,
+                    ),
+                ],
               ),
             ),
           ),
@@ -207,31 +236,127 @@ class AdminPage extends StatelessWidget {
             ),
           ),
           Surface(
-            title: 'Phương tiện chờ / đã duyệt',
-            child: RecordTable(
-              data: rows(data['/admin/vehicles']),
-              columns: const {
-                'rawPlate': 'Biển số',
-                'vehicleType': 'Loại xe',
-                'authorized': 'Được phép',
-              },
-              actions: (v) => ActionButton(
-                'Duyệt quyền',
-                () => submitForm(
-                  context,
-                  api,
-                  'Xác nhận quyền dùng xe',
-                  '/vehicle-authorizations',
-                  const [
-                    FormFieldSpec(
-                      'reason',
-                      'Căn cứ xác minh',
-                      kind: 'multiline',
-                    ),
-                  ],
-                  extra: {'vehicleId': v['id'], 'studentId': v['studentId']},
+            title: 'Phương tiện & Thẻ xe sinh viên',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ActionButton(
+                  'Đăng ký thẻ xe cho sinh viên',
+                  () => submitForm(
+                    context,
+                    api,
+                    'Đăng ký phương tiện gửi xe',
+                    '/admin/vehicles',
+                    [
+                      FormFieldSpec(
+                        'studentId',
+                        'Sinh viên',
+                        options: {
+                          for (final s in students)
+                            s['studentId'].toString():
+                                '${s['studentCode']} • ${s['name']}',
+                        },
+                      ),
+                      const FormFieldSpec(
+                        'plate',
+                        'Biển số xe (VD: 59-A1 123.45)',
+                      ),
+                      const FormFieldSpec(
+                        'vehicleType',
+                        'Loại phương tiện',
+                        options: {
+                          'MOTORCYCLE': 'Xe máy',
+                          'BICYCLE': 'Xe đạp điện / xe đạp',
+                          'CAR': 'Ô tô',
+                        },
+                        initial: 'MOTORCYCLE',
+                      ),
+                    ],
+                  ),
+                  icon: Icons.two_wheeler_outlined,
                 ),
-                outlined: true,
+                const SizedBox(height: 16),
+                RecordTable(
+                  data: rows(data['/admin/vehicles']),
+                  columns: const {
+                    'rawPlate': 'Biển số',
+                    'studentCode': 'Mã sinh viên',
+                    'studentName': 'Họ và tên',
+                    'vehicleType': 'Loại xe',
+                    'authorized': 'Đã duyệt',
+                  },
+                  actions: (v) => v['authorized'] == true
+                      ? const Text('Đã duyệt')
+                      : ActionButton(
+                          'Duyệt quyền',
+                          () => submitForm(
+                            context,
+                            api,
+                            'Xác nhận quyền dùng xe',
+                            '/vehicle-authorizations',
+                            const [
+                              FormFieldSpec(
+                                'reason',
+                                'Căn cứ xác minh',
+                                kind: 'multiline',
+                              ),
+                            ],
+                            extra: {'vehicleId': v['id'], 'studentId': v['studentId']},
+                          ),
+                          outlined: true,
+                        ),
+                ),
+              ],
+            ),
+          ),
+          Surface(
+            title: 'Hồ sơ khuôn mặt sinh viên',
+            child: RecordTable(
+              data: rows(data['/admin/face-profiles']),
+              columns: const {
+                'studentCode': 'Mã sinh viên',
+                'studentName': 'Họ và tên',
+                'enrolled': 'Đã có mẫu',
+                'model': 'Mô hình AI',
+                'enrolledAt': 'Thời gian lưu',
+              },
+              actions: (s) => Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (s['enrolled'] == true)
+                    ActionButton(
+                      'Xóa mẫu',
+                      () async {
+                        await api.request(
+                          '/admin/face-pilot',
+                          method: 'POST',
+                          body: {'studentId': s['studentId'], 'action': 'erase'},
+                        );
+                        api.changed();
+                        if (context.mounted) {
+                          success(context, 'Đã xóa mẫu khuôn mặt.');
+                        }
+                      },
+                      outlined: true,
+                    )
+                  else
+                    const Text('Chưa có mẫu'),
+                  const SizedBox(width: 8),
+                  ActionButton(
+                    'Xóa sinh viên',
+                    () => _showDeleteOrSettleDialog(
+                      context,
+                      api,
+                      userId: (s['userId'] ?? '').toString(),
+                      userName: s['studentName'].toString(),
+                      userEmail: s['email']?.toString(),
+                      studentId: s['studentId'].toString(),
+                      studentCode: s['studentCode'].toString(),
+                    ),
+                    outlined: true,
+                    icon: Icons.delete_outline,
+                  ),
+                ],
               ),
             ),
           ),
@@ -531,4 +656,239 @@ class AuditPage extends StatelessWidget {
       ],
     ),
   );
+}
+
+
+Future<void> _showDeleteOrSettleDialog(
+  BuildContext context,
+  CampusApi api, {
+  required String userId,
+  required String userName,
+  String? userEmail,
+  String? studentId,
+  String? studentCode,
+}) async {
+  Map<String, dynamic>? preview;
+  try {
+    final res = await api.request('/admin/users/$userId/delete-preview');
+    if (res is Map) {
+      preview = Map<String, dynamic>.from(res);
+    }
+  } catch (e) {
+    if (context.mounted) {
+      error(context, 'Không tải được thông tin tài khoản: $e');
+    }
+    return;
+  }
+
+  if (preview == null || !context.mounted) return;
+
+  final hasTransactions = preview['hasTransactions'] == true;
+  final balancePoints = preview['balancePoints']?.toString() ?? '0';
+  final txCount = preview['transactionCount'] ?? 0;
+  final studentName = preview['name']?.toString() ?? userName;
+  final email = preview['email']?.toString() ?? userEmail ?? '';
+  final sCode = preview['studentCode']?.toString() ?? studentCode ?? '';
+
+  // TRƯỜNG HỢP 1: Tài khoản chưa từng nạp tiền / chưa có giao dịch -> Xóa sạch 100%
+  if (!hasTransactions) {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.delete_forever, color: Color(0xffdc2626), size: 48),
+        title: const Text('Xác nhận xóa tài khoản'),
+        content: Text(
+          'Tài khoản "$studentName" ($email) chưa từng nạp tiền hoặc phát sinh giao dịch tài chính.\n\n'
+          'Thao tác này sẽ xóa sạch 100% tài khoản, thẻ RFID và dữ liệu khuôn mặt khỏi cơ sở dữ liệu.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xffdc2626)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Xác nhận xóa sạch 100%'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await api.request('/admin/users/$userId', method: 'DELETE');
+        api.changed();
+        if (context.mounted) {
+          success(context, 'Đã xóa người dùng "$studentName" thành công.');
+        }
+      } catch (e) {
+        if (context.mounted) {
+          error(context, 'Xóa không thành công: $e');
+        }
+      }
+    }
+    return;
+  }
+
+  // TRƯỜNG HỢP 2: Tài khoản ĐÃ TỪNG NẠP TIỀN / CÓ GIAO DỊCH
+  // POPUP 1: Hiển thị số dư hiện tại & cảnh báo kiểm toán
+  final proceedToSettle = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: const Icon(Icons.account_balance_wallet_outlined, color: Color(0xffd97706), size: 48),
+      title: const Text('Thông tin số dư & Lịch sử giao dịch'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Họ tên: $studentName'
+              '${sCode.isNotEmpty ? "\nMSSV: $sCode" : ""}'
+              '${email.isNotEmpty ? "\nEmail: $email" : ""}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+              decoration: BoxDecoration(
+                color: const Color(0xfffffbeb),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xfffcd34d), width: 1.5),
+              ),
+              child: Column(
+                children: [
+                  const Text('Số dư ví hiện tại:', style: TextStyle(fontSize: 13, color: Color(0xff92400e))),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$balancePoints point',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xffb45309)),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '(Đã phát sinh $txCount giao dịch trong hệ thống)',
+                    style: const TextStyle(fontSize: 12, color: Color(0xff92400e)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              '⚠️ Lưu ý kiểm toán:\n'
+              'Sinh viên này đã có lịch sử nạp tiền hoặc chi tiêu trong quá khứ. Theo quy định kiểm toán tài chính, các chứng từ giao dịch kế toán sẽ được lưu giữ để đối soát doanh thu, không được xóa cứng làm sai lệch sổ cái.\n\n'
+              'Nếu tiếp tục, hệ thống sẽ chuyển sang bước Hoàn tiền tất toán số dư cho sinh viên, đồng thời thu hồi thẻ RFID và xóa khuôn mặt để bạn có thể cấp cho người khác ngay lập tức.',
+              style: TextStyle(fontSize: 12.5, color: Colors.black87, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Hủy'),
+        ),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(backgroundColor: const Color(0xff0f766e)),
+          onPressed: () => Navigator.pop(ctx, true),
+          icon: const Icon(Icons.arrow_forward),
+          label: const Text('Vẫn tiếp tục'),
+        ),
+      ],
+    ),
+  );
+
+  if (proceedToSettle != true || !context.mounted) return;
+
+  // POPUP 2: Hoàn tiền cho sinh viên & Thu hồi tài khoản
+  final confirmedSettle = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: const Icon(Icons.assignment_return_outlined, color: Color(0xff0f766e), size: 48),
+      title: const Text('Hoàn tiền cho sinh viên & Thu hồi'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xfff0fdf4),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xff86efac)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.currency_exchange, color: Color(0xff16a34a), size: 30),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Số tiền hoàn trả lại sinh viên:', style: TextStyle(fontSize: 12, color: Color(0xff166534))),
+                        Text(
+                          '$balancePoints point',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff15803d)),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Thủ quỹ hoàn trả tiền mặt hoặc chuyển khoản cho sinh viên. Hệ thống tự động ghi nhận bút toán tất toán số dư về 0 point.',
+                          style: TextStyle(fontSize: 11, color: Color(0xff166534)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Danh sách tác vụ tự động thực hiện:\n'
+              '✔️ Tất toán số dư ví về 0 point\n'
+              '✔️ Thu hồi thẻ RFID (thẻ được giải phóng để cấp cho người khác ngay)\n'
+              '✔️ Xóa khuôn mặt AI (camera bãi xe/cổng không còn nhận diện)\n'
+              '✔️ Khóa ví điện tử & hủy quyền đăng nhập của sinh viên\n'
+              '✔️ Bảo toàn chứng từ lịch sử giao dịch phục vụ đối soát kế toán',
+              style: TextStyle(fontSize: 12.5, color: Colors.black87, height: 1.45),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Quay lại'),
+        ),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(backgroundColor: const Color(0xff0f766e)),
+          onPressed: () => Navigator.pop(ctx, true),
+          icon: const Icon(Icons.check_circle_outline),
+          label: const Text('Xác nhận Hoàn tiền & Thu hồi'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmedSettle == true && context.mounted) {
+    try {
+      final res = await api.request(
+        '/admin/users/$userId/settle-and-deactivate',
+        method: 'POST',
+        body: {'reason': 'Hoàn tiền tất toán số dư & thu hồi tài khoản sinh viên'},
+      );
+      api.changed();
+      if (context.mounted) {
+        final refundAmt = (res is Map ? res['refundedPoints'] : null) ?? balancePoints;
+        success(
+          context,
+          'Đã hoàn tất hoàn trả $refundAmt point và thu hồi thẻ RFID, khuôn mặt cho "$studentName"! Thẻ và khuôn mặt đã sẵn sàng để cấp cho người khác.',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        error(context, 'Xử lý thu hồi không thành công: $e');
+      }
+    }
+  }
 }

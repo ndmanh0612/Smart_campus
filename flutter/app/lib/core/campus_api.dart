@@ -129,6 +129,9 @@ class CampusApi extends ChangeNotifier {
     return decoded['data'];
   }
 
+  String? demoPin;
+  String? demoPassword;
+
   Future<void> login(String email, String password) async {
     final data = Map<String, dynamic>.from(
       await request(
@@ -138,6 +141,29 @@ class CampusApi extends ChangeNotifier {
       ),
     );
     await acceptSession(data);
+  }
+
+  Future<void> demoLogin(String email) async {
+    final data = Map<String, dynamic>.from(
+      await request(
+        '/auth/demo-login',
+        method: 'POST',
+        body: {'email': email},
+      ),
+    );
+    await acceptSession(data);
+  }
+
+  Future<Map<String, dynamic>?> fetchDemoAccounts() async {
+    try {
+      final res = await request('/auth/demo-accounts', retryAuth: false);
+      if (res is Map) {
+        demoPin = res['pin']?.toString();
+        demoPassword = res['password']?.toString();
+        return Map<String, dynamic>.from(res);
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<void> acceptSession(Map<String, dynamic> data) async {

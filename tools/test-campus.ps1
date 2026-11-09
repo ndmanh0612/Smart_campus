@@ -1,6 +1,15 @@
-param([string]$PgBin='C:\Program Files\PostgreSQL\17\bin',[string]$Node='C:\Users\dellcuatri142\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe',[string]$TestPattern='')
+param([string]$PgBin='',[string]$Node='',[string]$TestPattern='')
 $ErrorActionPreference='Stop'
 $root=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+if (!$PgBin) {
+    if (Test-Path 'C:\Program Files\PostgreSQL\17\bin\pg_ctl.exe') { $PgBin = 'C:\Program Files\PostgreSQL\17\bin' }
+    elseif (Test-Path (Join-Path $root '.work\pg\package\native\bin\pg_ctl.exe')) { $PgBin = Join-Path $root '.work\pg\package\native\bin' }
+}
+if (!$Node) {
+    $found = (Get-Command node -ErrorAction SilentlyContinue)
+    if ($found) { $Node = $found.Source }
+    elseif (Test-Path 'C:\Program Files\nodejs\node.exe') { $Node = 'C:\Program Files\nodejs\node.exe' }
+}
 $data=Join-Path $root '.work\campus-test'
 $evidence=Join-Path $root 'docs\evidence'
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null

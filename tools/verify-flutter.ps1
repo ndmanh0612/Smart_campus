@@ -1,6 +1,11 @@
 param([ValidateSet('all','web','apk')][string]$Stage='all')
 $ErrorActionPreference='Stop'
 $root=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+try {
+    $fso = New-Object -ComObject Scripting.FileSystemObject
+    $short = $fso.GetFolder($root).ShortPath
+    if ($short) { $root = $short }
+} catch {}
 $flutter=Join-Path $root '.work\toolchains\flutter\bin\flutter.bat'
 $app=Join-Path $root 'flutter\app'
 if(!(Test-Path -LiteralPath $flutter) -or !(Test-Path -LiteralPath (Join-Path $app 'pubspec.yaml'))){throw 'Install the local SDK and scaffold app first; see README'}
@@ -22,6 +27,12 @@ $settings['JAVA_TOOL_OPTIONS']=$env:JAVA_TOOL_OPTIONS+' -Djdk.net.unixdomain.tmp
 $settings['PATH']='C:\Users\dellcuatri142\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd;'+$env:PATH
 $prior=@{}
 foreach($name in $settings.Keys){$prior[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$settings[$name],'Process')}
+$priorErrorAction = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+    $priorNativeError = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 Push-Location $app
 try{
  if($Stage -eq 'all'){

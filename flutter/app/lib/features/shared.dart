@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/campus_api.dart';
 
@@ -250,6 +250,8 @@ class RecordTable extends StatelessWidget {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        dataRowMinHeight: 44,
+        dataRowMaxHeight: double.infinity,
         headingRowColor: const WidgetStatePropertyAll(Color(0xfff1f5f9)),
         columns: [
           ...columns.values.map((v) => DataColumn(label: Text(v))),
@@ -271,7 +273,7 @@ class RecordTable extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (actions != null) DataCell(actions!(row)),
+                  if (actions != null) DataCell(Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: actions!(row))),
                 ],
               ),
             )
@@ -332,11 +334,13 @@ class _ActionButtonState extends State<ActionButton> {
             onPressed: widget.action == null || busy ? null : run,
             icon: icon,
             label: Text(widget.label),
+            style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
           )
         : FilledButton.icon(
             onPressed: widget.action == null || busy ? null : run,
             icon: icon,
             label: Text(widget.label),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xff0f766e), visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
           );
   }
 }
@@ -503,3 +507,5 @@ Map<String, String> options(
 void success(BuildContext context, String message) => ScaffoldMessenger.of(
   context,
 ).showSnackBar(SnackBar(content: Text(message)));
+
+void error(BuildContext context, String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: const Color(0xff991b1b)));
