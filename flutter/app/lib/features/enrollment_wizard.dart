@@ -280,7 +280,7 @@ class _EnrollStudentWizardDialogState
 
   void _startRfidPolling() {
     _rfidPollTimer?.cancel();
-    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 1000), (
+    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 180), (
       timer,
     ) async {
       if (!mounted) {
@@ -301,8 +301,19 @@ class _EnrollStudentWizardDialogState
                 if (mounted) {
                   setState(() {
                     _rfidUidController.text = newUid;
+                    if (res['registered'] == true) {
+                      _cardAlreadyRegistered = true;
+                      _cardConflictStudentName = res['studentName']?.toString();
+                      _cardConflictStudentCode = res['studentCode']?.toString();
+                    } else if (res['registered'] == false) {
+                      _cardAlreadyRegistered = false;
+                      _cardConflictStudentName = null;
+                      _cardConflictStudentCode = null;
+                    }
                   });
-                  _checkCardRegistration(newUid);
+                  if (res['registered'] == null) {
+                    _checkCardRegistration(newUid);
+                  }
                 }
               }
             } else {

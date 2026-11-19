@@ -20,7 +20,65 @@ class _ParkingPageState extends State<ParkingPage> {
   String purpose = 'PARKING_ENTRY', plate = '';
   bool useFace = false;
   bool isProcessing = false;
+  Timer? _parkingRfidPollTimer;
+  DateTime? _parkingWaitingStartedAt;
+  String? _lastParkingTappedAt;
+
   CampusApi get api => widget.api;
+
+  @override
+  void dispose() {
+    _parkingRfidPollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startParkingRfidPolling() {
+    _parkingRfidPollTimer?.cancel();
+    _parkingRfidPollTimer = Timer.periodic(const Duration(milliseconds: 180), (t) async {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      if (contextId == null || identityId != null) {
+        t.cancel();
+        return;
+      }
+
+      try {
+        final ev = await api.request('/simulator/events') as Map?;
+        if (ev != null && ev['identities'] is List) {
+          final ids = rows(ev['identities'])
+              .where((i) => i['contextId'] == contextId && i['consumedAt'] == null)
+              .toList();
+          if (ids.isNotEmpty && mounted && identityId == null) {
+            setState(() {
+              identityId = ids.first['id'] as String?;
+            });
+            api.changed();
+            t.cancel();
+            return;
+          }
+        }
+
+        if (!useFace) {
+          final res = await api.request('/admin/latest-tapped-card');
+          if (res is Map && res['uid'] != null) {
+            final tappedAtStr = res['tappedAt'] as String?;
+            if (tappedAtStr != null && tappedAtStr != _lastParkingTappedAt) {
+              final tappedAt = DateTime.tryParse(tappedAtStr);
+              if (tappedAt != null &&
+                  _parkingWaitingStartedAt != null &&
+                  !tappedAt.isBefore(_parkingWaitingStartedAt!.subtract(const Duration(seconds: 1))) &&
+                  DateTime.now().difference(tappedAt).inSeconds <= 20) {
+                _lastParkingTappedAt = tappedAtStr;
+                api.changed();
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    });
+  }
 
   Future<void> prepare(
     List<RowData> terminals,
@@ -125,7 +183,10 @@ class _ParkingPageState extends State<ParkingPage> {
       plate = exit
           ? (active.firstWhere((s) => s['id'] == form['sessionId'])['entryPlate']?.toString() ?? '')
           : '';
+      _parkingWaitingStartedAt = DateTime.now();
+      _lastParkingTappedAt = DateTime.now().toIso8601String();
     });
+    _startParkingRfidPolling();
     api.changed();
   }
 
@@ -425,12 +486,14 @@ class _ParkingPageState extends State<ParkingPage> {
                               'reason': 'Nhân viên hủy để chuẩn bị lại lượt xác thực',
                             },
                           );
+                          _parkingRfidPollTimer?.cancel();
                           if (mounted) {
                             setState(() {
                               contextId = null;
                               identityId = null;
                               sessionId = null;
                               plate = '';
+                              _parkingWaitingStartedAt = null;
                             });
                           }
                           api.changed();
@@ -459,12 +522,14 @@ class _ParkingPageState extends State<ParkingPage> {
                                       'plate': plate,
                                     },
                                   );
+                                  _parkingRfidPollTimer?.cancel();
                                   if (mounted) {
                                     setState(() {
                                       contextId = null;
                                       identityId = null;
                                       sessionId = null;
                                       plate = '';
+                                      _parkingWaitingStartedAt = null;
                                     });
                                   }
                                   api.changed();
@@ -527,12 +592,14 @@ class _ParkingPageState extends State<ParkingPage> {
                                     } catch (_) {}
                                   }
 
+                                  _parkingRfidPollTimer?.cancel();
                                   if (mounted) {
                                     setState(() {
                                       contextId = null;
                                       identityId = null;
                                       sessionId = null;
                                       plate = '';
+                                      _parkingWaitingStartedAt = null;
                                     });
                                   }
                                   api.changed();

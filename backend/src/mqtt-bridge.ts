@@ -99,10 +99,12 @@ export function startMqttBridge(env: NodeJS.ProcessEnv, apiOrigin: string) {
             seen.delete(seen.values().next().value!);
         pending++;
         queue = queue.then(async () => {
-            await request('/device/raw-tap', { uid: match[2] });
-            console.log('MQTT card delivered to registration wizard');
-            const config = await configuration();
-            if (!config.context)
+            const [, config] = await Promise.all([
+                request('/device/raw-tap', { uid: match[2] }),
+                configuration()
+            ]);
+            console.log('MQTT card delivered to registration wizard & active context');
+            if (!config || !config.context)
                 return;
             const context = {
                 deviceId: config.deviceId, configVersion: config.configVersion,

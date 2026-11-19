@@ -43,7 +43,7 @@ class _CanteenPageState extends State<CanteenPage> {
 
   void _startRfidPolling() {
     _rfidPollTimer?.cancel();
-    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 600), (timer) async {
+    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 180), (timer) async {
       if (!mounted) {
         timer.cancel();
         return;
@@ -70,17 +70,29 @@ class _CanteenPageState extends State<CanteenPage> {
             }
 
             _lastHandledTappedAt = tappedAtStr;
-            final check = await api.request('/admin/check-card?uid=$uid');
-            if (check is Map && check['registered'] == true && mounted) {
+            if (res['registered'] == true && mounted) {
               setState(() {
                 identifiedStudent = {
-                  'studentId': check['studentId'],
-                  'studentCode': check['studentCode'],
-                  'studentName': check['studentName'],
-                  'walletBalance': check['walletBalance'],
+                  'studentId': res['studentId'],
+                  'studentCode': res['studentCode'],
+                  'studentName': res['studentName'],
+                  'walletBalance': res['walletBalance'],
                   'rfidUid': uid,
                 };
               });
+            } else if (res['registered'] == null) {
+              final check = await api.request('/admin/check-card?uid=$uid');
+              if (check is Map && check['registered'] == true && mounted) {
+                setState(() {
+                  identifiedStudent = {
+                    'studentId': check['studentId'],
+                    'studentCode': check['studentCode'],
+                    'studentName': check['studentName'],
+                    'walletBalance': check['walletBalance'],
+                    'rfidUid': uid,
+                  };
+                });
+              }
             }
           }
         }
