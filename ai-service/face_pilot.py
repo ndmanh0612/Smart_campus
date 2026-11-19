@@ -10,8 +10,9 @@ import numpy as np
 
 from detect_faces import load_frame
 from runtime import Runtime
+from face_quality import check_face_quality, check_registration_position, QUALITY_VERSION, MATCH_THRESHOLD
 
-THRESHOLD = 0.50
+THRESHOLD = MATCH_THRESHOLD
 PROFILE_DIR = Path(__file__).resolve().parents[1] / ".work" / "face-profiles"
 
 
@@ -45,11 +46,14 @@ def main():
         height, width = frame.shape[:2]
         runtime.detector.setInputSize((width, height))
         _, faces = runtime.detector.detect(frame)
-        if faces is None or len(faces) != 1:
-            raise ValueError("Exactly one face must be visible")
-        if min(faces[0][2:4]) < 60:
-            raise ValueError("Face is too small. Move closer to the camera.")
-        aligned = runtime.recognizer.alignCrop(frame, faces[0])
+        face, quality = check_face_quality(frame, faces)
+        if args.action == "enroll":
+            check_registration_position(frame, face)
+        if args.action == "verify":
+            metadata = json.loads(meta_file.read_text(encoding="utf-8"))
+            if metadata.get("qualityVersion") != QUALITY_VERSION:
+                raise ValueError("Hãy đăng ký lại mẫu khuôn mặt rõ nét theo kiểm tra chất lượng mới.")
+        aligned = runtime.recognizer.alignCrop(frame, face)
         feature = runtime.recognizer.feature(aligned)
         if args.action == "enroll":
             PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -61,6 +65,8 @@ def main():
                 "name": args.name or "",
                 "enrolledAt": datetime.now(timezone.utc).isoformat(),
                 "model": "SFace",
+                "qualityVersion": QUALITY_VERSION,
+                "quality": quality,
                 "liveness": "NOT_CHECKED"
             }
             meta_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")

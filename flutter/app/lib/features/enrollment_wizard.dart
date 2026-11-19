@@ -60,6 +60,8 @@ class _EnrollStudentWizardDialogState
 
   // Bước 3: Khuôn mặt thật - Realtime Camera & Auto-Capture
   bool _faceCaptured = false;
+  int _centeredFrames = 0;
+  double _registrationAspectRatio = 4 / 3;
   bool _liveScanActive = false;
   double _currentYunetScore = 0.0;
   String _faceStatusText = 'Đang khởi động camera dò tìm khuôn mặt realtime...';
@@ -114,6 +116,7 @@ class _EnrollStudentWizardDialogState
   void _startLiveFaceDetection() {
     if (_liveScanActive || _faceCaptured) return;
     _liveScanActive = true;
+    _centeredFrames = 0;
     _currentYunetScore = 0.0;
     _currentFaceBox = null;
     _faceStatusText = 'Đang kết nối camera và dò tìm khuôn mặt...';
@@ -188,16 +191,23 @@ class _EnrollStudentWizardDialogState
               _currentYunetScore = score;
               _currentFaceBox = box;
 
-              if (score >= 0.80) {
-                // TỰ ĐỘNG CHỤP KHI ĐỦ TỶ LỆ YUNET SCORE (>= 80%)
+              final width = (res['width'] as num?)?.toDouble() ?? 0;
+              final height = (res['height'] as num?)?.toDouble() ?? 0;
+              if (width > 0 && height > 0) {
+                _registrationAspectRatio = width / height;
+              }
+              final eligible = res['enrollmentEligible'] == true &&
+                  faces?.length == 1 && frameBase64 != null;
+              _centeredFrames = eligible ? _centeredFrames + 1 : 0;
+              if (_centeredFrames >= 3) {
                 _liveScanActive = false;
-                _faceStatusText = '🔍 Đang kiểm tra trùng lặp khuôn mặt trên hệ thống...';
+                _faceStatusText = 'Đang kiểm tra hồ sơ khuôn mặt…';
                 _checkFaceDuplication(frameBase64, score);
-              } else if (score >= 0.50) {
-                _faceStatusText =
-                    '🔍 Đang lấy nét: ${(score * 100).toStringAsFixed(1)}% (Cần ≥ 80% để tự chụp). Giữ yên khuôn mặt...';
+              } else if (eligible) {
+                _faceStatusText = 'Giữ yên khuôn mặt ở giữa khung…';
               } else {
-                _faceStatusText = 'Đang quét... Hãy hướng khuôn mặt vào camera.';
+                _faceStatusText = res['guidance']?.toString() ??
+                    'Đưa khuôn mặt vào giữa khung hướng dẫn.';
               }
             });
           }
@@ -248,7 +258,7 @@ class _EnrollStudentWizardDialogState
 
   void _startRfidPolling() {
     _rfidPollTimer?.cancel();
-    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 500), (
+    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 1000), (
       timer,
     ) async {
       if (!mounted) {
@@ -339,7 +349,7 @@ class _EnrollStudentWizardDialogState
           _faceConflictStudentCode = res['studentCode']?.toString();
           _faceConflictScore = (res['score'] as num?)?.toDouble() ?? 0.0;
           _faceStatusText =
-              '⛔ Khuôn mặt này đã thuộc về: ${_faceConflictStudentName} (${_faceConflictStudentCode}) • Trùng khớp: ${(_faceConflictScore * 100).toStringAsFixed(1)}%';
+              '⛔ Khuôn mặt này đã thuộc về: $_faceConflictStudentName ($_faceConflictStudentCode) • Trùng khớp: ${(_faceConflictScore * 100).toStringAsFixed(1)}%';
         });
       } else {
         setState(() {
@@ -354,9 +364,10 @@ class _EnrollStudentWizardDialogState
     } catch (e) {
       if (mounted) {
         setState(() {
-          _faceCaptured = true;
+          _faceCaptured = false;
           _faceAlreadyRegistered = false;
-          _faceStatusText = '🟢 ĐÃ TỰ ĐỘNG CHỤP KHUÔN MẶT (YuNet: ${(score * 100).toStringAsFixed(1)}%)';
+          _centeredFrames = 0;
+          _faceStatusText = 'Chưa kiểm tra được hồ sơ. Vui lòng quét lại khuôn mặt.';
         });
       }
     } finally {
@@ -768,7 +779,7 @@ class _EnrollStudentWizardDialogState
         ),
         const SizedBox(height: 6),
         const Text(
-          'Yêu cầu quẹt thẻ sinh viên vật lý lên đầu đọc MFRC522 (Cổng COM10). Hệ thống sẽ tự động quét được mã thẻ và hiển thị lên màn hình.',
+          'Chạm thẻ vào đầu đọc MFRC522. ESP32 gửi mã thẻ qua MQTT để hiển thị trên màn hình.',
           style: TextStyle(fontSize: 13, color: Colors.black54),
         ),
         const SizedBox(height: 24),
@@ -820,7 +831,7 @@ class _EnrollStudentWizardDialogState
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Hãy áp thẻ sinh viên vào đầu đọc MFRC522 (COM10).\nHệ thống đang tự động lắng nghe tín hiệu quét thẻ...',
+                    'Nhấc thẻ ra rồi áp lại đầu đọc MFRC522.\nHệ thống đang chờ lượt quẹt qua MQTT...',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
@@ -1003,7 +1014,7 @@ class _EnrollStudentWizardDialogState
         ),
         const SizedBox(height: 4),
         const Text(
-          'Hướng mặt thẳng vào camera. Hệ thống tự động phân tích độ nét realtime và TỰ ĐỘNG CHỤP khi YuNet Score ≥ 80%.',
+          'Đưa khuôn mặt vào chính giữa khung hướng dẫn và nhìn thẳng vào camera. Hệ thống yêu cầu khuôn mặt phải nằm giữa khung và đủ độ nét mới tự động chụp để đăng ký.',
           style: TextStyle(fontSize: 12.5, color: Colors.black54),
         ),
         const SizedBox(height: 12),
@@ -1098,7 +1109,7 @@ class _EnrollStudentWizardDialogState
                 children: [
                   // Khung hình camera realtime
                   AspectRatio(
-                    aspectRatio: 4 / 3,
+                    aspectRatio: _registrationAspectRatio,
                     child: _faceImageBase64 != null
                         ? Image.memory(
                             base64Decode(
@@ -1133,7 +1144,9 @@ class _EnrollStudentWizardDialogState
                       child: IgnorePointer(
                         child: CustomPaint(
                           painter: _FaceReticlePainter(
-                            hasFace: _currentYunetScore > 0.40,
+                            hasFace: _currentYunetScore > 0.40 || _currentFaceBox != null,
+                            isEligible: _centeredFrames > 0,
+                            centeredFrames: _centeredFrames,
                             score: _currentYunetScore,
                             faceBox: _currentFaceBox,
                           ),
@@ -1264,16 +1277,22 @@ class _EnrollStudentWizardDialogState
             ),
           ),
 
-        // Thanh đo YuNet Score (Gauge)
+        // Thanh đo định vị vị trí giữa khung & tiến trình tự động chụp
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: _faceCaptured
                 ? const Color(0xfff0fdf4)
-                : const Color(0xfff8fafc),
+                : (_centeredFrames > 0
+                    ? const Color(0xfff0fdf4)
+                    : const Color(0xfff8fafc)),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: _faceCaptured ? const Color(0xff86efac) : Colors.blueGrey.shade200,
+              color: _faceCaptured
+                  ? const Color(0xff86efac)
+                  : (_centeredFrames > 0
+                      ? const Color(0xff86efac)
+                      : Colors.blueGrey.shade200),
             ),
           ),
           child: Column(
@@ -1287,23 +1306,27 @@ class _EnrollStudentWizardDialogState
                       Icon(
                         _faceCaptured
                             ? Icons.verified
-                            : (_currentYunetScore >= 0.80
-                                ? Icons.check_circle
-                                : Icons.sensors),
+                            : (_centeredFrames > 0
+                                ? Icons.center_focus_strong
+                                : Icons.face),
                         size: 16,
                         color: _faceCaptured
                             ? const Color(0xff16a34a)
-                            : (_currentYunetScore >= 0.80
-                                ? const Color(0xff16a34a)
+                            : (_centeredFrames > 0
+                                ? const Color(0xff059669)
                                 : const Color(0xff0284c7)),
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'Độ tin cậy YuNet: ${(_currentYunetScore * 100).toStringAsFixed(1)}%',
+                        _faceCaptured
+                            ? 'Trạng thái: Đã chụp đạt chuẩn'
+                            : (_centeredFrames > 0
+                                ? 'Đang căn giữa ($_centeredFrames/3)...'
+                                : 'Định vị khuôn mặt AI:'),
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
-                          color: _faceCaptured || _currentYunetScore >= 0.80
+                          color: _faceCaptured || _centeredFrames > 0
                               ? const Color(0xff166534)
                               : const Color(0xff0f172a),
                         ),
@@ -1313,15 +1336,27 @@ class _EnrollStudentWizardDialogState
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: const Color(0xffe2e8f0),
+                      color: _faceCaptured
+                          ? const Color(0xffdcfce7)
+                          : (_centeredFrames > 0
+                              ? const Color(0xffecfdf5)
+                              : const Color(0xffe2e8f0)),
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: const Text(
-                      'Chuẩn tự chụp: ≥ 80%',
+                    child: Text(
+                      _faceCaptured
+                          ? 'Đã chụp thành công'
+                          : (_centeredFrames > 0
+                              ? 'Giữ yên: $_centeredFrames/3'
+                              : 'Cần vào giữa khung'),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xff475569),
+                        color: _faceCaptured
+                            ? const Color(0xff15803d)
+                            : (_centeredFrames > 0
+                                ? const Color(0xff047857)
+                                : const Color(0xff475569)),
                       ),
                     ),
                   ),
@@ -1331,30 +1366,52 @@ class _EnrollStudentWizardDialogState
               ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: LinearProgressIndicator(
-                  value: _faceCaptured ? 1.0 : _currentYunetScore.clamp(0.0, 1.0),
+                  value: _faceCaptured ? 1.0 : (_centeredFrames / 3.0),
                   minHeight: 8,
                   backgroundColor: const Color(0xffe2e8f0),
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    _faceCaptured || _currentYunetScore >= 0.80
+                    _faceCaptured || _centeredFrames >= 3
                         ? const Color(0xff16a34a)
-                        : (_currentYunetScore >= 0.50
-                            ? const Color(0xfff59e0b)
+                        : (_centeredFrames > 0
+                            ? const Color(0xff10b981)
                             : const Color(0xff94a3b8)),
                   ),
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                _faceStatusText,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: _faceCaptured ? FontWeight.bold : FontWeight.normal,
-                  color: _faceCaptured
-                      ? const Color(0xff166534)
-                      : (_currentYunetScore >= 0.80
-                          ? const Color(0xff15803d)
-                          : Colors.grey.shade700),
-                ),
+              Row(
+                children: [
+                  Icon(
+                    _faceCaptured
+                        ? Icons.check_circle
+                        : (_centeredFrames > 0
+                            ? Icons.hourglass_top
+                            : Icons.info_outline),
+                    size: 15,
+                    color: _faceCaptured
+                        ? const Color(0xff16a34a)
+                        : (_centeredFrames > 0
+                            ? const Color(0xff059669)
+                            : const Color(0xffd97706)),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _faceStatusText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: _faceCaptured || _centeredFrames > 0
+                            ? FontWeight.bold
+                            : FontWeight.w500,
+                        color: _faceCaptured
+                            ? const Color(0xff166534)
+                            : (_centeredFrames > 0
+                                ? const Color(0xff047857)
+                                : const Color(0xffb45309)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1382,8 +1439,8 @@ class _EnrollStudentWizardDialogState
               Text('• Thẻ RFID: ${_rfidUidController.text.trim()}'),
               Text(
                 _faceCaptured
-                    ? '• Khuôn mặt: 🟢 Đã tự động chụp đạt chuẩn YuNet SFace'
-                    : '• Khuôn mặt: ⏳ Đang quét realtime (Chờ độ nét ≥ 80% để tự chụp)',
+                    ? '• Khuôn mặt: 🟢 Đã tự động chụp đạt chuẩn (vào giữa khung & rõ nét)'
+                    : '• Khuôn mặt: ⏳ Đang quét realtime (Cần đưa khuôn mặt vào giữa khung)',
                 style: TextStyle(
                   color: _faceCaptured ? const Color(0xff166534) : Colors.orange.shade800,
                   fontWeight: FontWeight.w600,
@@ -1483,10 +1540,18 @@ class _EnrollStudentWizardDialogState
 
 class _FaceReticlePainter extends CustomPainter {
   final bool hasFace;
+  final bool isEligible;
+  final int centeredFrames;
   final double score;
   final List<double>? faceBox;
 
-  _FaceReticlePainter({required this.hasFace, required this.score, this.faceBox});
+  _FaceReticlePainter({
+    required this.hasFace,
+    required this.isEligible,
+    required this.centeredFrames,
+    required this.score,
+    this.faceBox,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1494,31 +1559,34 @@ class _FaceReticlePainter extends CustomPainter {
     final radiusX = size.width * 0.28;
     final radiusY = size.height * 0.40;
 
-    final paint = Paint()
-      ..color = hasFace
-          ? (score >= 0.80
-              ? const Color(0xff22c55e).withValues(alpha: 0.9)
-              : const Color(0xff0ea5e9).withValues(alpha: 0.8))
-          : Colors.white.withValues(alpha: 0.35)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = hasFace ? 2.5 : 1.8;
+    final Color frameColor = isEligible
+        ? const Color(0xff22c55e) // Xanh lá khi khuôn mặt nằm chính giữa & đạt chuẩn
+        : (hasFace
+            ? const Color(0xfff59e0b) // Vàng cam khi có mặt nhưng chưa vào giữa khung
+            : Colors.white.withValues(alpha: 0.40)); // Trắng mờ khi chưa thấy mặt
 
-    // Vẽ hình oval định vị khuôn mặt
-    canvas.drawOval(
-      Rect.fromCenter(center: center, width: radiusX * 2, height: radiusY * 2),
+    final paint = Paint()
+      ..color = frameColor.withValues(alpha: isEligible ? 0.95 : (hasFace ? 0.85 : 0.40))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = isEligible ? 3.0 : (hasFace ? 2.2 : 1.8);
+
+    // Vẽ khung chữ nhật bo góc hướng dẫn định vị khuôn mặt
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: center, width: radiusX * 2, height: radiusY * 2),
+        const Radius.circular(32),
+      ),
       paint,
     );
 
     // Vẽ 4 góc định vị (Face ID brackets)
     final cornerPaint = Paint()
-      ..color = hasFace
-          ? (score >= 0.80 ? const Color(0xff22c55e) : const Color(0xff0ea5e9))
-          : Colors.white.withValues(alpha: 0.5)
+      ..color = frameColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.5
+      ..strokeWidth = isEligible ? 4.5 : 3.5
       ..strokeCap = StrokeCap.round;
 
-    const cornerLen = 18.0;
+    const cornerLen = 22.0;
     final left = center.dx - radiusX - 10;
     final right = center.dx + radiusX + 10;
     final top = center.dy - radiusY - 10;
@@ -1536,11 +1604,23 @@ class _FaceReticlePainter extends CustomPainter {
     // Bottom-Right
     canvas.drawLine(Offset(right - cornerLen, bottom), Offset(right, bottom), cornerPaint);
     canvas.drawLine(Offset(right, bottom), Offset(right, bottom - cornerLen), cornerPaint);
+
+    // Dấu chữ thập tâm mờ để người dùng dễ căn chỉnh chính giữa
+    if (!isEligible) {
+      final crosshairPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+      canvas.drawLine(Offset(center.dx - 12, center.dy), Offset(center.dx + 12, center.dy), crosshairPaint);
+      canvas.drawLine(Offset(center.dx, center.dy - 12), Offset(center.dx, center.dy + 12), crosshairPaint);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _FaceReticlePainter oldDelegate) =>
       oldDelegate.hasFace != hasFace ||
+      oldDelegate.isEligible != isEligible ||
+      oldDelegate.centeredFrames != centeredFrames ||
       oldDelegate.score != score ||
       oldDelegate.faceBox != faceBox;
 }

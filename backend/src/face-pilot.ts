@@ -5,7 +5,7 @@ import type { Express, Response } from 'express';
 import type { Pool } from 'pg';
 import { choice, fields, handler, id, one, reject, requireRole, send, uuid, type Actor } from './platform.ts';
 
-export function mountFacePilot(app: Express, pool: Pool, camera: string) {
+export function mountFacePilot(app: Express, pool: Pool, camera: () => string) {
     const root = resolve(import.meta.dirname, '../..');
     const script = resolve(root, 'ai-service/face_pilot.py');
     let busy = false;
@@ -23,7 +23,7 @@ export function mountFacePilot(app: Express, pool: Pool, camera: string) {
         if (!stream) {
             const controller = new AbortController();
             stream = controller;
-            const url = new URL(camera);
+            const url = new URL(camera());
             url.port = String(Number(url.port || 80) + 1);
             url.pathname = '/stream';
             url.search = '';
@@ -95,7 +95,7 @@ export function mountFacePilot(app: Express, pool: Pool, camera: string) {
     };
 
     function attachVideoFeed(res: Response) {
-        if (!camera)
+        if (!camera())
             reject(503, 'FACE_PILOT_DISABLED', 'Thử nghiệm camera chưa được bật.');
         if (viewers.size >= 4)
             reject(429, 'FACE_VIDEO_BUSY', 'Camera đã có đủ phiên xem.');
@@ -178,6 +178,9 @@ export function mountFacePilot(app: Express, pool: Pool, camera: string) {
         }
         catch (error) {
             const stderr = (error as { stderr?: string }).stderr ?? '';
+            const qualityMessage = /Face pilot failed: ([^\r\n]+)/.exec(stderr)?.[1];
+            if (qualityMessage)
+                reject(422, 'FACE_FRAME_REJECTED', qualityMessage);
             if (stderr.includes('Exactly one face') || stderr.includes('Face is too small'))
                 reject(422, 'FACE_FRAME_REJECTED', 'Đứng gần camera, đủ sáng và chỉ để một khuôn mặt trong khung.');
             reject(503, 'FACE_PILOT_FAILED', 'Không xử lý được ảnh. Kiểm tra kết nối camera rồi thử lại.');
@@ -199,8 +202,8 @@ export function mountFacePilot(app: Express, pool: Pool, camera: string) {
             reject(404, 'STUDENT_NOT_FOUND', 'Không tìm thấy hồ sơ sinh viên.');
         send(res, {
             data: {
-                enabled: !!camera,
-                enrolled: !!camera && profileExists(studentId),
+                enabled: !!camera(),
+                enrolled: !!camera() && profileExists(studentId),
                 studentCode: student.student_code,
                 studentName: student.name,
                 metadata: meta,
@@ -216,7 +219,7 @@ export function mountFacePilot(app: Express, pool: Pool, camera: string) {
     app.post('/api/v1/me/face-pilot', handler(async (req, res) => {
         const actor = res.locals.actor as Actor;
         requireRole(actor, 'STUDENT');
-        if (!camera)
+        if (!camera())
             reject(503, 'FACE_PILOT_DISABLED', 'Thử nghiệm camera chưa được bật.');
         const b = fields(req.body, ['action', 'consent'], ['action']);
         const action = choice(b.action, ['enroll', 'verify', 'erase'] as const);
@@ -255,7 +258,7 @@ export function mountFacePilot(app: Express, pool: Pool, camera: string) {
 
     app.post('/api/v1/admin/face-pilot', handler(async (req, res) => {
         requireRole(res.locals.actor as Actor, 'ADMIN');
-        if (!camera)
+        if (!camera())
             reject(503, 'FACE_PILOT_DISABLED', 'Thử nghiệm camera chưa được bật.');
         const b = fields(req.body, ['studentId', 'action', 'consent'], ['studentId', 'action']);
         const action = choice(b.action, ['enroll', 'verify', 'erase'] as const);

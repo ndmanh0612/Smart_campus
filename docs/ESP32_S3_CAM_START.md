@@ -48,3 +48,35 @@ khuôn mặt đủ lớn trong khung. App chỉ lưu vector mẫu trong
 
 Ngưỡng cosine 0,50 là cấu hình thử nghiệm chưa hiệu chỉnh trên OV3660.
 Mục này chưa kiểm tra liveness và kết quả không tạo quyền mở cổng hay thanh toán.
+
+## Gửi lượt quẹt qua MQTT
+
+Dùng broker MQTT qua TLS có hostname ổn định. ESP32 và backend kết nối
+ra broker. Tạo hai tài khoản riêng và cấu hình quyền để ESP32 chỉ publish
+vào hai topic dưới đây, backend chỉ subscribe cùng hai topic.
+
+- `smart-campus/demo/tap` nhận mã sự kiện 32 ký tự hex viết thường, dấu hai chấm và UID hex viết hoa.
+- `smart-campus/demo/camera` nhận IPv4 LAN hiện tại của ESP32 mỗi 5 giây.
+
+Backend đọc cấu hình sau từ `.work/campus.env`. Lấy token thiết bị của
+Smart Campus từ `.work/campus-local.json`, trường `deviceToken`.
+
+```dotenv
+CAMPUS_MQTT_URL=mqtts://broker.example.invalid:8883
+CAMPUS_MQTT_TOPIC=smart-campus/demo
+CAMPUS_MQTT_USERNAME=
+CAMPUS_MQTT_PASSWORD=
+CAMPUS_MQTT_DEVICE_TOKEN=
+```
+
+Cài thư viện ArduinoMqttClient. Trong thư mục sketch CameraWebServer +
+RC522, sao chép `firmware/mqtt/CampusMqtt.h` và tạo `mqtt_secrets.h` theo
+tệp mẫu. Dùng tài khoản ESP32, cùng tiền tố topic và PEM CA của broker.
+Include `CampusMqtt.h`, gọi `beginCampusMqtt()` sau `WiFi.begin()`,
+`pollCampusMqtt(serverStarted)` trong vòng lặp và
+`publishCampusTap(reader.uid.uidByte, reader.uid.size)` sau khi đọc thẻ.
+
+Lượt quẹt đi qua broker khi ESP32 có Internet. Video MJPEG đi qua LAN.
+Backend cập nhật IP camera từ MQTT khi IP thuộc cùng mạng LAN với PC.
+Ở địa điểm mới, kết nối ESP32 vào Wi-Fi 2,4 GHz có Internet. Dùng lại
+cùng hotspot khi di chuyển sẽ giữ nguyên thông tin Wi-Fi trong ESP32.

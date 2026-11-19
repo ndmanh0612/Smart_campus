@@ -12,6 +12,8 @@ export interface FaceDetectionResult {
     height?: number;
     error?: string;
     message?: string;
+    enrollmentEligible?: boolean;
+    guidance?: string;
 }
 
 export interface FaceEnrollResult {

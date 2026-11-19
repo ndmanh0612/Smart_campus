@@ -157,7 +157,7 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
         res.locals.actor = a;
         await rateLimit(pool, 'user:' + a.id, 240);
     })().then(() => next(), next); });
-    mountFacePilot(app, pool, cfg.env === 'development' && process.env.HOST === '127.0.0.1' ? process.env.FACE_PILOT_CAMERA ?? '' : '');
+    mountFacePilot(app, pool, () => cfg.env === 'development' && process.env.HOST === '127.0.0.1' ? process.env.FACE_PILOT_CAMERA ?? '' : '');
     function read(path: string, roles: string[] | null, fn: RouteFn) {
         app.get('/api/v1' + path, handler(async (req, res) => {
             const a = res.locals.actor as Actor;
@@ -372,7 +372,7 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
         let returnFrameBase64: string | undefined = undefined;
 
         if (b.useEsp32Camera || (!imageSource || typeof imageSource !== 'string' || imageSource.trim().length === 0)) {
-            const cameraUrl = b.sourceUrl || (process.env.FACE_PILOT_CAMERA ? `${process.env.FACE_PILOT_CAMERA}/capture` : 'http://192.168.2.43/capture');
+            const cameraUrl = typeof b.sourceUrl === 'string' && b.sourceUrl || (process.env.FACE_PILOT_CAMERA ? `${process.env.FACE_PILOT_CAMERA}/capture` : 'http://192.168.2.43/capture');
             const res = await fetch(cameraUrl, { signal: AbortSignal.timeout(5000) });
             if (!res.ok) {
                 reject(502, 'CAMERA_UNAVAILABLE', 'Không thể kết nối đến Camera ESP32-S3.');
@@ -411,9 +411,9 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
         const b = fields(req.body, ['contextId', 'imageBase64', 'sourceUrl', 'useEsp32Camera'], []);
         const contextId = b.contextId ? uuid(b.contextId) : null;
 
-        let imageSource = b.imageBase64;
-        if (b.useEsp32Camera || !imageSource || typeof imageSource !== 'string' || imageSource.trim().length === 0) {
-            imageSource = b.sourceUrl || (process.env.FACE_PILOT_CAMERA ? `${process.env.FACE_PILOT_CAMERA}/capture` : 'http://192.168.2.43/capture');
+        let imageSource = typeof b.imageBase64 === 'string' ? b.imageBase64 : '';
+        if (b.useEsp32Camera || !imageSource.trim()) {
+            imageSource = typeof b.sourceUrl === 'string' && b.sourceUrl || (process.env.FACE_PILOT_CAMERA ? `${process.env.FACE_PILOT_CAMERA}/capture` : 'http://192.168.2.43/capture');
         }
 
         const match = await identifyFaceReal(imageSource);
@@ -527,7 +527,7 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
 
     write('/face/check-enrolled', ['ADMIN'], async ({ db, req }) => {
         const b = fields(req.body, ['imageBase64'], ['imageBase64']);
-        const match = await identifyFaceReal(b.imageBase64);
+        const match = await identifyFaceReal(str(b.imageBase64, 16 * 1024 * 1024));
         if (match.success && match.outcome === 'MATCH' && match.studentId) {
             const student = await optional(
                 db,
@@ -1061,6 +1061,11 @@ function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
     });
     write('/admin/enroll-student', ['ADMIN'], async ({ db, a, req }) => {
         const b = fields(req.body, ['email', 'name', 'studentCode', 'password', 'rfidUid', 'faceImageBase64', 'initialPoints', 'plate', 'vehicleType'], ['email', 'name', 'studentCode', 'password']);
+        if (typeof b.faceImageBase64 === 'string' && b.faceImageBase64.length > 50) {
+            const check = await detectFaceReal(b.faceImageBase64);
+            if (!check.success || !check.enrollmentEligible)
+                reject(422, 'FACE_FRAME_REJECTED', check.guidance || check.message || 'Đưa khuôn mặt rõ nét vào giữa khung trước khi đăng ký.');
+        }
         const email = str(b.email, 200).toLowerCase().trim();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
             reject(400, 'INVALID_EMAIL', 'Email không hợp lệ.');
@@ -1177,10 +1182,15 @@ function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
                 if (enrollAiRes.success) {
                     console.log(`[FACE_AI] Enrolled real SFace vector for student ${studentCode} (${name}), score=${enrollAiRes.score}`);
                 } else {
-                    console.warn(`[FACE_AI] Face enrollment warning: ${enrollAiRes.message || enrollAiRes.error}`);
+                    console.warn(`[FACE_AI] Face enrollment rejected: ${enrollAiRes.message || enrollAiRes.error}`);
+                    reject(422, 'FACE_FRAME_REJECTED', enrollAiRes.message || 'Khuôn mặt chưa đạt yêu cầu định vị giữa khung hoặc độ nét.');
                 }
-            } catch (aiErr) {
+            } catch (aiErr: any) {
+                if (aiErr?.status === 422 || aiErr?.code === 'FACE_FRAME_REJECTED') {
+                    throw aiErr;
+                }
                 console.error('[FACE_AI] Error enrolling real face:', aiErr);
+                reject(422, 'FACE_FRAME_REJECTED', 'Lỗi xử lý khuôn mặt AI: ' + (aiErr.message || aiErr));
             }
         } else {
             try {
