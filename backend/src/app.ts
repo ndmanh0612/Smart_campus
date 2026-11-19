@@ -12,7 +12,7 @@ import * as canteen from './canteen.ts';
 import * as attendance from './attendance.ts';
 import { normalizePlate } from './providers.ts';
 import { mountFacePilot } from './face-pilot.ts';
-import { enrollFaceReal, identifyFaceReal, detectFaceReal } from './face-service.ts';
+import { enrollFaceReal, identifyFaceReal, detectFaceReal, removeFaceProfileFiles } from './face-service.ts';
 type Context = {
     db: Db;
     a: Actor;
@@ -560,14 +560,20 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
                  WHERE s.id = $1`,
                 [match.studentId]
             );
-            return {
-                alreadyEnrolled: true,
-                studentId: match.studentId,
-                studentCode: student?.student_code ?? match.studentCode ?? '',
-                studentName: student?.name ?? match.name ?? '',
-                score: match.score ?? 0,
-                box: match.box
-            };
+            if (student) {
+                return {
+                    alreadyEnrolled: true,
+                    studentId: match.studentId,
+                    studentCode: student.student_code,
+                    studentName: student.name,
+                    score: match.score ?? 0,
+                    box: match.box
+                };
+            } else {
+                // Orphaned face profile on disk not in active students database
+                console.warn(`[FACE_CLEANUP] Removing orphaned face profile on disk: ${match.studentId}`);
+                await removeFaceProfileFiles(match.studentId);
+            }
         }
         return {
             alreadyEnrolled: false,
@@ -1177,14 +1183,20 @@ function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
                          WHERE s.id = $1`,
                         [existingMatch.studentId]
                     );
-                    const sName = matchedStudent?.name || existingMatch.name || 'Sinh viên';
-                    const sCode = matchedStudent?.student_code || existingMatch.studentCode || '';
-                    const scorePercent = ((existingMatch.score ?? 0) * 100).toFixed(1);
-                    reject(
-                        409,
-                        'FACE_ALREADY_REGISTERED',
-                        `Khuôn mặt này đã được đăng ký trong hệ thống cho sinh viên ${sName} (MSSV: ${sCode}) với độ khớp ${scorePercent}%. Không thể đăng ký trùng lặp!`
-                    );
+                    if (matchedStudent) {
+                        const sName = matchedStudent.name;
+                        const sCode = matchedStudent.student_code;
+                        const scorePercent = ((existingMatch.score ?? 0) * 100).toFixed(1);
+                        reject(
+                            409,
+                            'FACE_ALREADY_REGISTERED',
+                            `Khuôn mặt này đã được đăng ký trong hệ thống cho sinh viên ${sName} (MSSV: ${sCode}) với độ khớp ${scorePercent}%. Không thể đăng ký trùng lặp!`
+                        );
+                    } else {
+                        // Orphaned profile file on disk, clean it up so it does not block enrollment
+                        console.warn(`[ENROLL_STUDENT] Removing orphaned face profile on disk: ${existingMatch.studentId}`);
+                        await removeFaceProfileFiles(existingMatch.studentId);
+                    }
                 }
             } catch (checkErr: any) {
                 if (checkErr?.status === 409 || checkErr?.code === 'FACE_ALREADY_REGISTERED') {
@@ -1241,9 +1253,11 @@ function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
                     console.log(`[FACE_AI] Enrolled real SFace vector for student ${studentCode} (${name}), score=${enrollAiRes.score}`);
                 } else {
                     console.warn(`[FACE_AI] Face enrollment rejected: ${enrollAiRes.message || enrollAiRes.error}`);
+                    await removeFaceProfileFiles(studentId);
                     reject(422, 'FACE_FRAME_REJECTED', enrollAiRes.message || 'Khuôn mặt chưa đạt yêu cầu định vị giữa khung hoặc độ nét.');
                 }
             } catch (aiErr: any) {
+                await removeFaceProfileFiles(studentId);
                 if (aiErr?.status === 422 || aiErr?.code === 'FACE_FRAME_REJECTED') {
                     throw aiErr;
                 }

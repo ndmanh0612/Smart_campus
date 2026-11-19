@@ -1,6 +1,6 @@
 import { execFile, spawn, ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -253,6 +253,20 @@ export async function detectFaceReal(
     }
     const { sourceArgs, buffer } = parseSource(imageSource);
     return runFaceEngine(['detect', ...sourceArgs], buffer);
+}
+
+export async function removeFaceProfileFiles(studentId: string): Promise<void> {
+    if (!studentId || typeof studentId !== 'string') return;
+    const profileDir = resolve(root, '.work/face-profiles');
+    const extensions = ['-v1.npy', '-meta.json', '-avatar.jpg'];
+    for (const ext of extensions) {
+        const p = resolve(profileDir, `${studentId}${ext}`);
+        if (existsSync(p)) {
+            try {
+                unlinkSync(p);
+            } catch (_) {}
+        }
+    }
 }
 
 // Start daemon eagerly at module load
