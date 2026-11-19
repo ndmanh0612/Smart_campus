@@ -1,4 +1,5 @@
 ﻿import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:ui_web' as ui_web;
 import 'package:flutter/material.dart';
@@ -511,6 +512,7 @@ class _AttendanceFaceScanDialogState extends State<_AttendanceFaceScanDialog> {
   web.HTMLVideoElement? _webcamVideo;
   web.MediaStream? _webcamStream;
   List<double>? _faceBox;
+  String? _frameBase64;
   int _centeredFrames = 0;
   bool _isProcessing = false;
   double _aspectRatio = 4 / 3;
@@ -608,6 +610,11 @@ class _AttendanceFaceScanDialogState extends State<_AttendanceFaceScanDialog> {
           await Future<void>.delayed(const Duration(milliseconds: 100));
           continue;
         }
+        if (mounted && _frameBase64 == null) {
+          setState(() {
+            _frameBase64 = b64;
+          });
+        }
 
         final det = await widget.api.request(
           '/face/detect',
@@ -621,6 +628,7 @@ class _AttendanceFaceScanDialogState extends State<_AttendanceFaceScanDialog> {
         if (!mounted || !_active) break;
 
         if (det is Map && det['success'] == true) {
+          final fBase64 = det['frameBase64']?.toString() ?? b64;
           final faces = det['faces'] as List?;
           final eligible = det['enrollmentEligible'] == true && faces != null && faces.length == 1;
           List<double>? box;
@@ -636,6 +644,7 @@ class _AttendanceFaceScanDialogState extends State<_AttendanceFaceScanDialog> {
 
           if (mounted) {
             setState(() {
+              _frameBase64 = fBase64;
               _faceBox = box;
               if (width > 0 && height > 0) {
                 _aspectRatio = width / height;
@@ -763,7 +772,20 @@ class _AttendanceFaceScanDialogState extends State<_AttendanceFaceScanDialog> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      const HtmlElementView(viewType: 'attendance-webcam-video'),
+                      if (_frameBase64 != null)
+                        Image.memory(
+                          base64Decode(
+                            _frameBase64!.contains(',')
+                                ? _frameBase64!.split(',').last
+                                : _frameBase64!,
+                          ),
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        )
+                      else
+                        const Center(
+                          child: CircularProgressIndicator(color: Color(0xff0d9488)),
+                        ),
                       CustomPaint(
                         painter: _AttendanceFaceOverlayPainter(
                           faceBox: _faceBox,

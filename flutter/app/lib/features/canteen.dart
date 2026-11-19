@@ -828,6 +828,11 @@ class _LiveCanteenFaceIdentifyDialogState
             await Future<void>.delayed(const Duration(milliseconds: 100));
             continue;
           }
+          if (mounted && _frameBase64 == null) {
+            setState(() {
+              _frameBase64 = b64;
+            });
+          }
         }
 
         final det = await widget.api.request(
@@ -1057,9 +1062,7 @@ class _LiveCanteenFaceIdentifyDialogState
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (_source == 'WEBCAM' && _webcamVideo != null)
-                            const HtmlElementView(viewType: 'canteen-webcam-video')
-                          else if (_frameBase64 != null)
+                          if (_frameBase64 != null)
                             Image.memory(
                               base64Decode(
                                 _frameBase64!.contains(',')

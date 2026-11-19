@@ -175,6 +175,11 @@ class _EnrollStudentWizardDialogState
             await Future<void>.delayed(const Duration(milliseconds: 100));
             continue;
           }
+          if (mounted && _faceImageBase64 == null) {
+            setState(() {
+              _faceImageBase64 = webcamFrame;
+            });
+          }
         }
 
         final res = await widget.api.request(
@@ -1140,7 +1145,7 @@ class _EnrollStudentWizardDialogState
                   // Khung hình camera realtime
                   AspectRatio(
                     aspectRatio: _registrationAspectRatio,
-                    child: _faceCaptured && _faceImageBase64 != null
+                    child: _faceImageBase64 != null
                         ? Image.memory(
                             base64Decode(
                               _faceImageBase64!.contains(',')
@@ -1150,34 +1155,22 @@ class _EnrollStudentWizardDialogState
                             fit: BoxFit.cover,
                             gaplessPlayback: true,
                           )
-                        : (_selectedCameraSource == 'WEBCAM' && _webcamVideo != null
-                            ? const HtmlElementView(viewType: 'enrollment-webcam-video')
-                            : (_faceImageBase64 != null
-                                ? Image.memory(
-                                    base64Decode(
-                                      _faceImageBase64!.contains(',')
-                                          ? _faceImageBase64!.split(',').last
-                                          : _faceImageBase64!,
-                                    ),
-                                    fit: BoxFit.cover,
-                                    gaplessPlayback: true,
-                                  )
-                                : Container(
-                                    color: const Color(0xff0f172a),
-                                    child: const Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          CircularProgressIndicator(color: Color(0xff0f766e)),
-                                          SizedBox(height: 12),
-                                          Text(
-                                            'Đang kết nối luồng camera...',
-                                            style: TextStyle(color: Colors.white70, fontSize: 13),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ))),
+                        : Container(
+                            color: const Color(0xff0f172a),
+                            child: const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(color: Color(0xff0f766e)),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    'Đang kết nối luồng camera...',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                   ),
 
                   // Lớp phủ hướng dẫn khuôn mặt (Face Reticle Overlay)
