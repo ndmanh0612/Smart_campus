@@ -366,7 +366,11 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     });
     write('/canteen/orders/:id/identify', canteenRoles, ({ db, a, req }) => canteen.identify(db, a, uuid(req.params.id), req.body));
     write('/canteen/orders/:id/payments', canteenRoles, ({ db, a, req }) => canteen.checkout(db, a, uuid(req.params.id), req.body));
-    write('/canteen/orders/:id/direct-pay', canteenRoles, ({ db, a, req }) => canteen.directCheckout(db, a, uuid(req.params.id), req.body, cfg.cardKey));
+    write('/canteen/orders/:id/direct-pay', canteenRoles, async ({ db, a, req }) => {
+        const res = await canteen.directCheckout(db, a, uuid(req.params.id), req.body, cfg.cardKey);
+        latestTappedCard = null;
+        return res;
+    });
     write('/canteen/orders/:id/cancel', canteenRoles, ({ db, a, req }) => canteen.cancelOrder(db, a, uuid(req.params.id), str(fields(req.body, ['reason']).reason, 1000, 5)));
     read('/me/canteen-orders', ['STUDENT'], async ({ db, a }) => (await db.query('SELECT * FROM orders WHERE student_id=$1 ORDER BY created_at DESC LIMIT 100', [a.studentId])).rows);
     registerAcademic(read, write);
@@ -512,10 +516,12 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
         const digest = uidHash(cleanUid, cfg.cardKey);
         const prior = await optional(
             db,
-            `SELECT c.id, s.student_code, u.name, u.email
+            `SELECT c.id, s.id AS student_id, s.student_code, u.name, u.email, coalesce(l.balance_points, 0)::text AS wallet_balance
              FROM campus.rfid_cards c
              JOIN campus.students s ON s.id = c.student_id
              JOIN campus.users u ON u.id = s.user_id
+             LEFT JOIN campus.wallets w ON w.student_id = s.id
+             LEFT JOIN campus.ledger_accounts l ON l.id = w.account_id
              WHERE c.uid_hmac = $1 AND c.status = 'ACTIVE'`,
             [digest]
         );
@@ -523,9 +529,11 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
             return {
                 registered: true,
                 cleanUid,
+                studentId: prior.student_id,
                 studentCode: prior.student_code,
                 studentName: prior.name,
-                email: prior.email
+                email: prior.email,
+                walletBalance: prior.wallet_balance
             };
         }
         return { registered: false, cleanUid };
@@ -670,7 +678,15 @@ function registerSimulation(read: Read, write: Write) {
 }
 function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
     read('/admin/reports', ['ADMIN'], async ({ db }) => ({ revenue: (await db.query("SELECT (t.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS day,coalesce(o.type,t.type) AS service,sum(CASE WHEN t.type IN('REFUND','REVERSAL') THEN -t.amount_points ELSE t.amount_points END)::text AS net_points FROM wallet_transactions t LEFT JOIN wallet_transactions o ON o.id=t.original_transaction_id WHERE t.type IN('CANTEEN_PAYMENT','PARKING_PAYMENT','REFUND','REVERSAL') GROUP BY 1,2 ORDER BY 1 DESC LIMIT 100")).rows, parking: (await db.query('SELECT status,count(*)::integer AS count FROM parking_sessions GROUP BY status')).rows, attendance: (await db.query('SELECT status,count(*)::integer AS count FROM attendance_records GROUP BY status')).rows, outbox: (await db.query('SELECT count(*) FILTER(WHERE published_at IS NULL)::integer AS pending,count(*) FILTER(WHERE dead_letter_at IS NOT NULL)::integer AS dead_letter FROM outbox_events')).rows[0] }));
-    read('/admin/latest-tapped-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async () => latestTappedCard);
+    read('/admin/latest-tapped-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async () => {
+        if (latestTappedCard) {
+            const ageMs = Date.now() - new Date(latestTappedCard.tappedAt).getTime();
+            if (ageMs > 20000) {
+                latestTappedCard = null;
+            }
+        }
+        return latestTappedCard;
+    });
     write('/admin/clear-latest-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async () => {
         latestTappedCard = null;
         return { cleared: true };

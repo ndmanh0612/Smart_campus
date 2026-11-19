@@ -23,12 +23,15 @@ class _CanteenPageState extends State<CanteenPage> {
 
   Timer? _rfidPollTimer;
   String? _lastHandledTappedAt;
+  DateTime? _orderWaitingStartedAt;
+  String? _ignoredIdentityAssertionId;
 
   CampusApi get api => widget.api;
 
   @override
   void initState() {
     super.initState();
+    _lastHandledTappedAt = DateTime.now().toIso8601String();
     _startRfidPolling();
   }
 
@@ -45,7 +48,7 @@ class _CanteenPageState extends State<CanteenPage> {
         timer.cancel();
         return;
       }
-      if (orderId == null || useFace || isProcessing) return;
+      if (orderId == null || useFace || isProcessing || _orderWaitingStartedAt == null) return;
 
       try {
         final res = await api.request('/admin/latest-tapped-card');
@@ -53,6 +56,19 @@ class _CanteenPageState extends State<CanteenPage> {
           final tappedAtStr = res['tappedAt'] as String?;
           final uid = res['uid'].toString().trim().toUpperCase();
           if (uid.isNotEmpty && tappedAtStr != null && tappedAtStr != _lastHandledTappedAt) {
+            final tappedAt = DateTime.tryParse(tappedAtStr);
+            if (tappedAt == null) return;
+
+            // BẮT BUỘC: Thẻ phải được quẹt SAU KHI đơn hàng này bắt đầu chờ thanh toán
+            if (tappedAt.isBefore(_orderWaitingStartedAt!.subtract(const Duration(seconds: 1)))) {
+              return;
+            }
+
+            // Thẻ quẹt phải còn mới (trong vòng 20 giây gần nhất)
+            if (DateTime.now().difference(tappedAt).inSeconds > 20) {
+              return;
+            }
+
             _lastHandledTappedAt = tappedAtStr;
             final check = await api.request('/admin/check-card?uid=$uid');
             if (check is Map && check['registered'] == true && mounted) {
@@ -114,12 +130,18 @@ class _CanteenPageState extends State<CanteenPage> {
         body: body,
       );
 
+      try {
+        await api.request('/admin/clear-latest-card', method: 'POST');
+      } catch (_) {}
+
       if (mounted) {
         setState(() {
           orderId = null;
           contextId = null;
           identityId = null;
           identifiedStudent = null;
+          _ignoredIdentityAssertionId = null;
+          _orderWaitingStartedAt = null;
         });
       }
       api.changed();
@@ -249,7 +271,7 @@ class _CanteenPageState extends State<CanteenPage> {
 
       // Check context identities if any matched via hardware bridge
       final identities = rows((data['/simulator/events'] as Map)['identities'])
-          .where((i) => i['contextId'] == contextId && i['consumedAt'] == null)
+          .where((i) => i['contextId'] == contextId && i['consumedAt'] == null && i['id'] != _ignoredIdentityAssertionId)
           .toList();
       if (identities.isNotEmpty && identifiedStudent == null) {
         final firstId = identities.first;
@@ -261,6 +283,7 @@ class _CanteenPageState extends State<CanteenPage> {
                 'studentId': firstId['studentId'],
                 'studentCode': firstId['studentCode'],
                 'studentName': firstId['studentName'],
+                'walletBalance': firstId['walletBalance'],
                 'identityAssertionId': firstId['id'],
               };
             });
@@ -378,6 +401,9 @@ class _CanteenPageState extends State<CanteenPage> {
                                   .toList(),
                             },
                           );
+                          try {
+                            await api.request('/admin/clear-latest-card', method: 'POST');
+                          } catch (_) {}
                           if (mounted) {
                             setState(() {
                               orderId = r['id'] as String;
@@ -385,6 +411,9 @@ class _CanteenPageState extends State<CanteenPage> {
                               contextId = null;
                               identityId = null;
                               identifiedStudent = null;
+                              _ignoredIdentityAssertionId = null;
+                              _orderWaitingStartedAt = DateTime.now();
+                              _lastHandledTappedAt = DateTime.now().toIso8601String();
                             });
                           }
                           api.changed();
@@ -425,10 +454,16 @@ class _CanteenPageState extends State<CanteenPage> {
                         ),
                       ],
                       selected: {useFace},
-                      onSelectionChanged: (values) => setState(() {
-                        useFace = values.single;
-                        identifiedStudent = null;
-                      }),
+                      onSelectionChanged: (values) {
+                        setState(() {
+                          useFace = values.single;
+                          identifiedStudent = null;
+                          identityId = null;
+                          _ignoredIdentityAssertionId = null;
+                          _orderWaitingStartedAt = DateTime.now();
+                          _lastHandledTappedAt = DateTime.now().toIso8601String();
+                        });
+                      },
                     ),
                     const SizedBox(height: 16),
 
@@ -590,7 +625,20 @@ class _CanteenPageState extends State<CanteenPage> {
                         if (identifiedStudent != null)
                           ActionButton(
                             'Quét lại người khác',
-                            () async { setState(() => identifiedStudent = null); },
+                            () async {
+                              try {
+                                await api.request('/admin/clear-latest-card', method: 'POST');
+                              } catch (_) {}
+                              if (mounted) {
+                                setState(() {
+                                  _ignoredIdentityAssertionId = identityId;
+                                  identifiedStudent = null;
+                                  identityId = null;
+                                  _orderWaitingStartedAt = DateTime.now();
+                                  _lastHandledTappedAt = DateTime.now().toIso8601String();
+                                });
+                              }
+                            },
                             outlined: true,
                           ),
 
@@ -604,12 +652,17 @@ class _CanteenPageState extends State<CanteenPage> {
                                     method: 'POST',
                                     body: {'reason': 'Nhân viên hủy đơn tại POS'},
                                   );
+                                  try {
+                                    await api.request('/admin/clear-latest-card', method: 'POST');
+                                  } catch (_) {}
                                   if (mounted) {
                                     setState(() {
                                       orderId = null;
                                       contextId = null;
                                       identityId = null;
                                       identifiedStudent = null;
+                                      _ignoredIdentityAssertionId = null;
+                                      _orderWaitingStartedAt = null;
                                     });
                                   }
                                   api.changed();
