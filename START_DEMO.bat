@@ -25,8 +25,9 @@ if %ERRORLEVEL% EQU 0 (
     echo [1/3] Database PostgreSQL da dang chay (Port 54334).
 ) else (
     echo [1/3] Dang khoi dong Database PostgreSQL (Port 54334)...
+    if exist "%SC_DIR%\.work\rfid-pg\postmaster.pid" del /f /q "%SC_DIR%\.work\rfid-pg\postmaster.pid" > nul 2>&1
     start "SmartCampus-DB" /min "%SC_DIR%\.work\pg\package\native\bin\postgres.exe" -D "%SC_DIR%\.work\rfid-pg" -h 127.0.0.1 -p 54334
-    timeout /t 2 /nobreak > nul
+    timeout /t 3 /nobreak > nul
 )
 
 :: 2. Kiem tra va khoi dong Backend
