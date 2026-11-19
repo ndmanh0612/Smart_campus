@@ -846,14 +846,17 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
     }
   }
 
-  String? _grabWebcam() {
+  String? _grabWebcam({int targetWidth = 480, double quality = 0.65}) {
     if (_webcamVideo == null || _webcamVideo!.videoWidth == 0) return null;
+    final vw = _webcamVideo!.videoWidth;
+    final vh = _webcamVideo!.videoHeight;
+    final targetHeight = (vh * (targetWidth / vw)).round();
     final canvas = web.HTMLCanvasElement()
-      ..width = _webcamVideo!.videoWidth
-      ..height = _webcamVideo!.videoHeight;
+      ..width = targetWidth
+      ..height = targetHeight;
     final ctx = canvas.getContext('2d') as web.CanvasRenderingContext2D;
-    ctx.drawImage(_webcamVideo!, 0, 0);
-    return canvas.toDataURL('image/jpeg');
+    ctx.drawImage(_webcamVideo!, 0, 0, targetWidth, targetHeight);
+    return canvas.toDataURL('image/jpeg', quality.toJS);
   }
 
   Future<void> _startLoop() async {

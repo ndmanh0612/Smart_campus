@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
+import 'dart:ui_web' as ui_web;
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 import '../core/campus_api.dart';
@@ -71,6 +72,8 @@ class _EnrollStudentWizardDialogState
   web.MediaStream? _webcamStream;
   List<double>? _currentFaceBox;
 
+  static bool _webcamViewRegistered = false;
+
   Future<void> _startWebcam() async {
     try {
       final mediaDevices = web.window.navigator.mediaDevices;
@@ -81,8 +84,21 @@ class _EnrollStudentWizardDialogState
         ..srcObject = stream
         ..autoplay = true
         ..playsInline = true
-        ..muted = true;
+        ..muted = true
+        ..style.width = '100%'
+        ..style.height = '100%'
+        ..style.objectFit = 'cover'
+        ..style.transform = 'scaleX(-1)';
+
+      if (!_webcamViewRegistered) {
+        ui_web.platformViewRegistry.registerViewFactory(
+          'enrollment-webcam-video',
+          (int viewId) => _webcamVideo!,
+        );
+        _webcamViewRegistered = true;
+      }
       await _webcamVideo!.play().toDart;
+      if (mounted) setState(() {});
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -103,14 +119,20 @@ class _EnrollStudentWizardDialogState
     }
   }
 
-  String? _grabWebcamFrameBase64() {
+  String? _grabWebcamFrameBase64({int targetWidth = 480, double quality = 0.65}) {
     if (_webcamVideo == null || _webcamVideo!.videoWidth == 0) return null;
+    final vw = _webcamVideo!.videoWidth;
+    final vh = _webcamVideo!.videoHeight;
+    final targetHeight = (vh * (targetWidth / vw)).round();
     final canvas = web.HTMLCanvasElement()
-      ..width = _webcamVideo!.videoWidth
-      ..height = _webcamVideo!.videoHeight;
+      ..width = targetWidth
+      ..height = targetHeight;
     final ctx = canvas.getContext('2d') as web.CanvasRenderingContext2D;
-    ctx.drawImage(_webcamVideo!, 0, 0);
-    return canvas.toDataURL('image/jpeg');
+    // Mirror horizontally so AI detection matches mirrored video view
+    ctx.translate(targetWidth, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(_webcamVideo!, 0, 0, targetWidth, targetHeight);
+    return canvas.toDataURL('image/jpeg', quality.toJS);
   }
 
   void _startLiveFaceDetection() {
@@ -150,9 +172,9 @@ class _EnrollStudentWizardDialogState
       try {
         String? webcamFrame;
         if (_selectedCameraSource == 'WEBCAM') {
-          webcamFrame = _grabWebcamFrameBase64();
+          webcamFrame = _grabWebcamFrameBase64(targetWidth: 480, quality: 0.65);
           if (webcamFrame == null) {
-            await Future<void>.delayed(const Duration(milliseconds: 200));
+            await Future<void>.delayed(const Duration(milliseconds: 100));
             continue;
           }
         }
@@ -202,7 +224,10 @@ class _EnrollStudentWizardDialogState
               if (_centeredFrames >= 3) {
                 _liveScanActive = false;
                 _faceStatusText = 'Đang kiểm tra hồ sơ khuôn mặt…';
-                _checkFaceDuplication(frameBase64, score);
+                final captureFrame = _selectedCameraSource == 'WEBCAM'
+                    ? (_grabWebcamFrameBase64(targetWidth: 720, quality: 0.88) ?? frameBase64)
+                    : frameBase64;
+                _checkFaceDuplication(captureFrame, score);
               } else if (eligible) {
                 _faceStatusText = 'Giữ yên khuôn mặt ở giữa khung…';
               } else {
@@ -1110,7 +1135,7 @@ class _EnrollStudentWizardDialogState
                   // Khung hình camera realtime
                   AspectRatio(
                     aspectRatio: _registrationAspectRatio,
-                    child: _faceImageBase64 != null
+                    child: _faceCaptured && _faceImageBase64 != null
                         ? Image.memory(
                             base64Decode(
                               _faceImageBase64!.contains(',')
@@ -1120,22 +1145,34 @@ class _EnrollStudentWizardDialogState
                             fit: BoxFit.cover,
                             gaplessPlayback: true,
                           )
-                        : Container(
-                            color: const Color(0xff0f172a),
-                            child: const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  CircularProgressIndicator(color: Color(0xff0f766e)),
-                                  SizedBox(height: 12),
-                                  Text(
-                                    'Đang kết nối luồng camera...',
-                                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                        : (_selectedCameraSource == 'WEBCAM' && _webcamVideo != null
+                            ? const HtmlElementView(viewType: 'enrollment-webcam-video')
+                            : (_faceImageBase64 != null
+                                ? Image.memory(
+                                    base64Decode(
+                                      _faceImageBase64!.contains(',')
+                                          ? _faceImageBase64!.split(',').last
+                                          : _faceImageBase64!,
+                                    ),
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                  )
+                                : Container(
+                                    color: const Color(0xff0f172a),
+                                    child: const Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          CircularProgressIndicator(color: Color(0xff0f766e)),
+                                          SizedBox(height: 12),
+                                          Text(
+                                            'Đang kết nối luồng camera...',
+                                            style: TextStyle(color: Colors.white70, fontSize: 13),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ))),
                   ),
 
                   // Lớp phủ hướng dẫn khuôn mặt (Face Reticle Overlay)
