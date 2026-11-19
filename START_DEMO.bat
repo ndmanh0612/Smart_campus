@@ -47,8 +47,8 @@ goto :OPEN_WEB
 
 :START_BACKEND
 echo [2/3] Dang khoi dong Backend Server tren cong 8081...
-start "SmartCampus-Backend" /d "%SC_DIR%\backend" cmd /k "node --env-file=..\.work\campus.env server.ts"
-ping 127.0.0.1 -n 4 > nul
+start "SmartCampus-Backend" "%SC_DIR%\backend\run_backend.bat"
+ping 127.0.0.1 -n 5 > nul
 
 :OPEN_WEB
 :: 3. Mo Web App
