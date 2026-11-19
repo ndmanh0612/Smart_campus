@@ -604,10 +604,12 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
         const e = safeError(error);
         if (e.status === 429)
             res.set('Retry-After', '60');
-        if (e.status >= 500)
+        if (e.status >= 500) {
+            console.error('[API_ERROR]', res.getHeader('X-Request-Id'), error);
             process.stderr.write(JSON.stringify({ level: 'error', requestId: res.getHeader('X-Request-Id'), code: (error as {
                     code?: string;
-                }).code ?? 'UNKNOWN' }) + '\n');
+                }).code ?? 'UNKNOWN', message: (error as Error)?.message }) + '\n');
+        }
         send(res, { status: e.status, error: { code: e.code, message: e.message, details: e.details } });
     };
     app.use(errors);
@@ -690,7 +692,7 @@ function registerSimulation(read: Read, write: Write) {
 }
 function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
     read('/admin/reports', ['ADMIN'], async ({ db }) => ({ revenue: (await db.query("SELECT (t.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS day,coalesce(o.type,t.type) AS service,sum(CASE WHEN t.type IN('REFUND','REVERSAL') THEN -t.amount_points ELSE t.amount_points END)::text AS net_points FROM wallet_transactions t LEFT JOIN wallet_transactions o ON o.id=t.original_transaction_id WHERE t.type IN('CANTEEN_PAYMENT','PARKING_PAYMENT','REFUND','REVERSAL') GROUP BY 1,2 ORDER BY 1 DESC LIMIT 100")).rows, parking: (await db.query('SELECT status,count(*)::integer AS count FROM parking_sessions GROUP BY status')).rows, attendance: (await db.query('SELECT status,count(*)::integer AS count FROM attendance_records GROUP BY status')).rows, outbox: (await db.query('SELECT count(*) FILTER(WHERE published_at IS NULL)::integer AS pending,count(*) FILTER(WHERE dead_letter_at IS NOT NULL)::integer AS dead_letter FROM outbox_events')).rows[0] }));
-    read('/admin/latest-tapped-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async ({ db }) => {
+    read('/admin/latest-tapped-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF', 'LECTURER'], async ({ db }) => {
         if (latestTappedCard) {
             const ageMs = Date.now() - new Date(latestTappedCard.tappedAt).getTime();
             if (ageMs > 25000) {
@@ -721,7 +723,7 @@ function registerAdmin(read: Read, write: Write, cfg: CampusConfig) {
             walletBalance: prior?.wallet_balance
         };
     });
-    write('/admin/clear-latest-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF'], async () => {
+    write('/admin/clear-latest-card', ['ADMIN', 'CANTEEN_STAFF', 'PARKING_STAFF', 'LECTURER'], async () => {
         latestTappedCard = null;
         return { cleared: true };
     });
