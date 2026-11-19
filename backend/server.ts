@@ -6,6 +6,9 @@ import { startMqttBridge } from './src/mqtt-bridge.ts';
 if (!process.env.DATABASE_URL)
     throw Error('DATABASE_URL required');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 3000 });
+pool.on('error', (err) => {
+    console.warn('[DATABASE_POOL] Idle client error (handled):', err.message);
+});
 const cfg = loadConfig(process.env);
 const stopMqtt = startMqttBridge(process.env, 'http://127.0.0.1:' + (process.env.PORT ?? '8081'));
 const server = createCampusApp(pool, cfg).listen(Number(process.env.PORT ?? 8081), process.env.HOST ?? '127.0.0.1', () => process.stdout.write(JSON.stringify({ listening: true, port: Number(process.env.PORT ?? 8081), environment: cfg.env, rfid: 'REAL', face: 'DEMO', payment: 'MOCK' }) + '\n'));
