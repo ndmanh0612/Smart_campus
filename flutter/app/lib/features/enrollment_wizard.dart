@@ -43,9 +43,7 @@ class _EnrollStudentWizardDialogState
   // Bước 2: Quẹt thẻ RFID
   final _rfidUidController = TextEditingController();
   Timer? _rfidPollTimer;
-  DateTime? _wizardStartTime;
   String? _lastHandledTappedAt;
-  String? _pendingTappedUid;
 
   // Kiểm tra trùng lặp thẻ RFID & khuôn mặt
   bool _isCheckingCard = false;
@@ -253,7 +251,6 @@ class _EnrollStudentWizardDialogState
   @override
   void initState() {
     super.initState();
-    _wizardStartTime = DateTime.now();
     _clearServerTappedCard();
     _startRfidPolling();
     _rfidUidController.addListener(() {
@@ -309,7 +306,6 @@ class _EnrollStudentWizardDialogState
                 }
               }
             } else {
-              _pendingTappedUid = newUid;
               _lastHandledTappedAt = tappedAtStr;
             }
           }
@@ -912,7 +908,6 @@ class _EnrollStudentWizardDialogState
                         _cardAlreadyRegistered = false;
                         _cardConflictStudentName = null;
                         _cardConflictStudentCode = null;
-                        _wizardStartTime = DateTime.now();
                       });
                       _clearServerTappedCard();
                     },
@@ -1002,7 +997,6 @@ class _EnrollStudentWizardDialogState
                     onPressed: () {
                       setState(() {
                         _rfidUidController.clear();
-                        _wizardStartTime = DateTime.now();
                         _clearServerTappedCard();
                       });
                     },
@@ -1526,7 +1520,6 @@ class _EnrollStudentWizardDialogState
                         setState(() {
                           _currentStep = 1;
                           _rfidUidController.clear();
-                          _wizardStartTime = DateTime.now();
                           _clearServerTappedCard();
                         });
                       }

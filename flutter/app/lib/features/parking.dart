@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
+import 'dart:ui_web' as ui_web;
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 import '../core/campus_api.dart';
@@ -274,7 +275,7 @@ class _ParkingPageState extends State<ParkingPage> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Sinh viên "${matchingIdentity['studentName']}" (${matchingIdentity['studentCode']}) hiện đang có một xe đang gửi trong bãi (Biển số: ${existingActiveSession?['entryPlate'] ?? "Đang gửi"}, trạng thái: ${existingActiveSession?['status']}).\n\n'
+                              'Sinh viên "${matchingIdentity['studentName']}" (${matchingIdentity['studentCode']}) hiện đang có một xe đang gửi trong bãi (Biển số: ${existingActiveSession['entryPlate'] ?? "Đang gửi"}, trạng thái: ${existingActiveSession['status']}).\n\n'
                               'Hệ thống không cho phép dùng thẻ hoặc khuôn mặt này để gửi thêm xe khác!',
                               style: const TextStyle(fontSize: 12.5, color: Color(0xFF7F1D1D), height: 1.4),
                             ),
@@ -806,6 +807,10 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
   web.HTMLVideoElement? _webcamVideo;
   web.MediaStream? _webcamStream;
   List<double>? _faceBox;
+  int _centeredFrames = 0;
+  double _aspectRatio = 4 / 3;
+
+  static bool _webcamViewRegistered = false;
 
   @override
   void initState() {
@@ -830,9 +835,28 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
         ..srcObject = stream
         ..autoplay = true
         ..playsInline = true
-        ..muted = true;
+        ..muted = true
+        ..style.width = '100%'
+        ..style.height = '100%'
+        ..style.objectFit = 'cover'
+        ..style.transform = 'scaleX(-1)';
+
+      if (!_webcamViewRegistered) {
+        ui_web.platformViewRegistry.registerViewFactory(
+          'parking-webcam-video',
+          (int viewId) => _webcamVideo!,
+        );
+        _webcamViewRegistered = true;
+      }
       await _webcamVideo!.play().toDart;
-    } catch (_) {}
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _statusText = 'Không thể truy cập Webcam máy tính: $e';
+        });
+      }
+    }
   }
 
   void _stopWebcam() {
@@ -855,6 +879,8 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
       ..width = targetWidth
       ..height = targetHeight;
     final ctx = canvas.getContext('2d') as web.CanvasRenderingContext2D;
+    ctx.translate(targetWidth, 0);
+    ctx.scale(-1, 1);
     ctx.drawImage(_webcamVideo!, 0, 0, targetWidth, targetHeight);
     return canvas.toDataURL('image/jpeg', quality.toJS);
   }
@@ -864,9 +890,9 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
       try {
         String? b64;
         if (_source == 'WEBCAM') {
-          b64 = _grabWebcam();
+          b64 = _grabWebcam(targetWidth: 480, quality: 0.65);
           if (b64 == null) {
-            await Future<void>.delayed(const Duration(milliseconds: 200));
+            await Future<void>.delayed(const Duration(milliseconds: 100));
             continue;
           }
         }
@@ -895,29 +921,50 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
             }
           }
 
+          final width = (det['width'] as num?)?.toDouble() ?? 0;
+          final height = (det['height'] as num?)?.toDouble() ?? 0;
+          final eligible = det['enrollmentEligible'] == true &&
+              faces != null &&
+              faces.length == 1 &&
+              fBase64 != null;
+
           if (mounted) {
             setState(() {
               if (fBase64 != null) _frameBase64 = fBase64;
               _score = currentScore;
               _faceBox = box;
-              if (currentScore >= 0.80) {
-                _statusText = '🟢 Độ nét đạt ${(currentScore * 100).toStringAsFixed(1)}% (≥ 80%). Đang đối sánh danh tính...';
-              } else if (currentScore >= 0.50) {
-                _statusText = '🔍 Đang lấy nét: ${(currentScore * 100).toStringAsFixed(1)}% (Cần ≥ 80%). Giữ yên đầu...';
+              if (width > 0 && height > 0) {
+                _aspectRatio = width / height;
+              }
+              _centeredFrames = eligible ? _centeredFrames + 1 : 0;
+
+              if (eligible) {
+                if (_centeredFrames >= 2) {
+                  _statusText = '🟢 Khuôn mặt đã căn giữa chuẩn! Đang đối sánh danh tính...';
+                } else {
+                  _statusText = 'Giữ yên khuôn mặt ở giữa khung… ($_centeredFrames/2)';
+                }
               } else {
-                _statusText = 'Đang quét... Hãy hướng khuôn mặt vào camera.';
+                _statusText = det['guidance']?.toString() ??
+                    (currentScore > 0.4
+                        ? 'Di chuyển khuôn mặt vào chính giữa khung hướng dẫn.'
+                        : 'Đang quét... Hãy hướng khuôn mặt vào giữa khung.');
               }
             });
           }
 
-          if (currentScore >= 0.80) {
+          if (eligible && _centeredFrames >= 2) {
             _active = false;
+            final captureFrame = (_source == 'WEBCAM')
+                ? (_grabWebcam(targetWidth: 720, quality: 0.88) ?? fBase64)
+                : fBase64;
+
             final idRes = await widget.api.request(
               '/face/identify',
               method: 'POST',
               body: {
                 'contextId': widget.contextId,
-                'imageBase64': fBase64,
+                'imageBase64': captureFrame,
                 'useEsp32Camera': false,
               },
             );
@@ -931,7 +978,14 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
                     _statusText = idRes['message']?.toString() ?? '⛔ Sinh viên này đã có xe trong bãi!';
                     _active = false;
                   });
-                  await Future<void>.delayed(const Duration(milliseconds: 1800));
+                  await Future<void>.delayed(const Duration(milliseconds: 2200));
+                }
+              } else {
+                if (mounted) {
+                  setState(() {
+                    _statusText = '🟢 Nhận diện thành công: ${idRes['studentName']} (${idRes['studentCode']})!';
+                  });
+                  await Future<void>.delayed(const Duration(milliseconds: 1200));
                 }
               }
               if (mounted) {
@@ -943,6 +997,7 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
                 setState(() {
                   _statusText = '❌ Không tìm thấy hồ sơ sinh viên khớp trong hệ thống.';
                   _active = true;
+                  _centeredFrames = 0;
                 });
                 await Future<void>.delayed(const Duration(seconds: 2));
               }
@@ -950,9 +1005,9 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
           }
         }
       } catch (e) {
-        if (mounted) {
+        if (mounted && _active) {
           setState(() {
-            _statusText = 'Đang kết nối camera: $e';
+            _statusText = 'Đang tìm tín hiệu camera: $e';
           });
         }
         await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -966,7 +1021,7 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 600),
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 660),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -994,7 +1049,7 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
               ),
               const SizedBox(height: 6),
               const Text(
-                'Hướng mặt vào camera. Khi YuNet Score ≥ 80%, hệ thống sẽ tự động chụp và đối sánh sinh trắc học.',
+                'Yêu cầu khuôn mặt nằm chính giữa khung hướng dẫn, rõ nét và đủ sáng. Hệ thống sẽ tự động xác thực.',
                 style: TextStyle(fontSize: 12, color: Colors.black54),
               ),
               const SizedBox(height: 12),
@@ -1002,27 +1057,47 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
               Row(
                 children: [
                   ChoiceChip(
-                    label: const Text('Camera ESP32-S3', style: TextStyle(fontSize: 11)),
+                    label: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.videocam, size: 15),
+                        SizedBox(width: 4),
+                        Text('Camera ESP32-S3', style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
                     selected: _source == 'ESP32',
                     onSelected: (sel) {
                       if (sel) {
                         setState(() {
                           _source = 'ESP32';
                           _stopWebcam();
+                          _centeredFrames = 0;
                         });
                       }
                     },
+                    selectedColor: const Color(0xffccfbf1),
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
-                    label: const Text('Webcam máy tính', style: TextStyle(fontSize: 11)),
+                    label: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.laptop, size: 15),
+                        SizedBox(width: 4),
+                        Text('Webcam máy tính', style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
                     selected: _source == 'WEBCAM',
                     onSelected: (sel) async {
                       if (sel) {
-                        setState(() => _source = 'WEBCAM');
+                        setState(() {
+                          _source = 'WEBCAM';
+                          _centeredFrames = 0;
+                        });
                         await _startWebcam();
                       }
                     },
+                    selectedColor: const Color(0xffccfbf1),
                   ),
                 ],
               ),
@@ -1034,20 +1109,31 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
                   constraints: const BoxConstraints(maxWidth: 420),
                   decoration: BoxDecoration(
                     color: Colors.black,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: _score >= 0.80 ? const Color(0xff22c55e) : const Color(0xff0ea5e9),
-                      width: 2,
+                      color: _centeredFrames > 0
+                          ? const Color(0xff22c55e)
+                          : (_score >= 0.50 ? const Color(0xfff59e0b) : const Color(0xff0ea5e9)),
+                      width: 2.5,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (_centeredFrames > 0 ? const Color(0xff22c55e) : Colors.black).withValues(alpha: 0.15),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     child: AspectRatio(
-                      aspectRatio: 4 / 3,
+                      aspectRatio: _aspectRatio,
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (_frameBase64 != null)
+                          if (_source == 'WEBCAM' && _webcamVideo != null)
+                            const HtmlElementView(viewType: 'parking-webcam-video')
+                          else if (_frameBase64 != null)
                             Image.memory(
                               base64Decode(
                                 _frameBase64!.contains(',')
@@ -1059,14 +1145,62 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
                             )
                           else
                             const Center(
-                              child: CircularProgressIndicator(color: Color(0xff0f766e)),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(color: Color(0xff0f766e)),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    'Đang kết nối camera bãi xe...',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                                  ),
+                                ],
+                              ),
                             ),
                           Positioned.fill(
                             child: CustomPaint(
                               painter: _ParkingFaceReticlePainter(
-                                hasFace: _score > 0.40,
+                                hasFace: _score > 0.40 || _faceBox != null,
+                                isEligible: _centeredFrames > 0,
+                                centeredFrames: _centeredFrames,
                                 score: _score,
                                 faceBox: _faceBox,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 10,
+                            right: 10,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: _centeredFrames >= 2
+                                    ? const Color(0xff16a34a)
+                                    : Colors.black.withValues(alpha: 0.65),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: _centeredFrames >= 2 ? Colors.white : Colors.white30,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _centeredFrames >= 2 ? Icons.check_circle : Icons.videocam,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _centeredFrames >= 2 ? 'ĐÃ CĂN GIỮA' : 'AI REALTIME',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -1085,23 +1219,70 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
                   minHeight: 8,
                   backgroundColor: const Color(0xffe2e8f0),
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    _score >= 0.80
+                    _centeredFrames > 0
                         ? const Color(0xff16a34a)
                         : (_score >= 0.50 ? const Color(0xfff59e0b) : const Color(0xff94a3b8)),
                   ),
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                'YuNet Score: ${(_score * 100).toStringAsFixed(1)}% (Chuẩn: ≥ 80%)',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Độ rõ nét YuNet: ${(_score * 100).toStringAsFixed(1)}% (Chuẩn: ≥ 80%)',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  if (_centeredFrames > 0)
+                    Text(
+                      'Căn giữa: $_centeredFrames/2',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: Color(0xff16a34a),
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                _statusText,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: _score >= 0.80 ? const Color(0xff166534) : Colors.black87,
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _centeredFrames > 0
+                      ? const Color(0xfff0fdf4)
+                      : (_score >= 0.50 ? const Color(0xfffffbeb) : const Color(0xfff8fafc)),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _centeredFrames > 0
+                        ? const Color(0xff86efac)
+                        : (_score >= 0.50 ? const Color(0xfffde68a) : const Color(0xffe2e8f0)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _centeredFrames > 0
+                          ? Icons.check_circle_outline
+                          : (_score >= 0.50 ? Icons.info_outline : Icons.center_focus_weak),
+                      size: 18,
+                      color: _centeredFrames > 0
+                          ? const Color(0xff16a34a)
+                          : (_score >= 0.50 ? const Color(0xffd97706) : Colors.black54),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _statusText,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: _centeredFrames > 0
+                              ? const Color(0xff166534)
+                              : (_score >= 0.50 ? const Color(0xff92400e) : Colors.black87),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1114,10 +1295,18 @@ class _LiveParkingFaceIdentifyDialogState extends State<_LiveParkingFaceIdentify
 
 class _ParkingFaceReticlePainter extends CustomPainter {
   final bool hasFace;
+  final bool isEligible;
+  final int centeredFrames;
   final double score;
   final List<double>? faceBox;
 
-  _ParkingFaceReticlePainter({required this.hasFace, required this.score, this.faceBox});
+  _ParkingFaceReticlePainter({
+    required this.hasFace,
+    required this.isEligible,
+    required this.centeredFrames,
+    required this.score,
+    this.faceBox,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1125,50 +1314,65 @@ class _ParkingFaceReticlePainter extends CustomPainter {
     final radiusX = size.width * 0.28;
     final radiusY = size.height * 0.40;
 
-    final paint = Paint()
-      ..color = hasFace
-          ? (score >= 0.80
-              ? const Color(0xff22c55e).withValues(alpha: 0.9)
-              : const Color(0xff0ea5e9).withValues(alpha: 0.8))
-          : Colors.white.withValues(alpha: 0.35)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = hasFace ? 2.5 : 1.8;
+    final Color frameColor = isEligible
+        ? const Color(0xff22c55e)
+        : (hasFace
+            ? const Color(0xfff59e0b)
+            : Colors.white.withValues(alpha: 0.40));
 
-    canvas.drawOval(
-      Rect.fromCenter(center: center, width: radiusX * 2, height: radiusY * 2),
+    final paint = Paint()
+      ..color = frameColor.withValues(alpha: isEligible ? 0.95 : (hasFace ? 0.85 : 0.40))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = isEligible ? 3.0 : (hasFace ? 2.2 : 1.8);
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: center, width: radiusX * 2, height: radiusY * 2),
+        const Radius.circular(32),
+      ),
       paint,
     );
 
     final cornerPaint = Paint()
-      ..color = hasFace
-          ? (score >= 0.80 ? const Color(0xff22c55e) : const Color(0xff0ea5e9))
-          : Colors.white.withValues(alpha: 0.5)
+      ..color = frameColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.5
+      ..strokeWidth = isEligible ? 4.5 : 3.5
       ..strokeCap = StrokeCap.round;
 
-    const cornerLen = 18.0;
+    const cornerLen = 22.0;
     final left = center.dx - radiusX - 10;
     final right = center.dx + radiusX + 10;
     final top = center.dy - radiusY - 10;
     final bottom = center.dy + radiusY + 10;
 
+    // Top-Left
     canvas.drawLine(Offset(left, top + cornerLen), Offset(left, top), cornerPaint);
     canvas.drawLine(Offset(left, top), Offset(left + cornerLen, top), cornerPaint);
-
+    // Top-Right
     canvas.drawLine(Offset(right - cornerLen, top), Offset(right, top), cornerPaint);
     canvas.drawLine(Offset(right, top), Offset(right, top + cornerLen), cornerPaint);
-
+    // Bottom-Left
     canvas.drawLine(Offset(left, bottom - cornerLen), Offset(left, bottom), cornerPaint);
     canvas.drawLine(Offset(left, bottom), Offset(left + cornerLen, bottom), cornerPaint);
-
+    // Bottom-Right
     canvas.drawLine(Offset(right - cornerLen, bottom), Offset(right, bottom), cornerPaint);
     canvas.drawLine(Offset(right, bottom), Offset(right, bottom - cornerLen), cornerPaint);
+
+    if (!isEligible) {
+      final crosshairPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+      canvas.drawLine(Offset(center.dx - 12, center.dy), Offset(center.dx + 12, center.dy), crosshairPaint);
+      canvas.drawLine(Offset(center.dx, center.dy - 12), Offset(center.dx, center.dy + 12), crosshairPaint);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _ParkingFaceReticlePainter oldDelegate) =>
       oldDelegate.hasFace != hasFace ||
+      oldDelegate.isEligible != isEligible ||
+      oldDelegate.centeredFrames != centeredFrames ||
       oldDelegate.score != score ||
       oldDelegate.faceBox != faceBox;
 }
