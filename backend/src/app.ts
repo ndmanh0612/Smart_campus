@@ -26,7 +26,13 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     app.disable('x-powered-by');
     app.set('trust proxy', false);
     app.use((req, res, next) => {
-        res.set({ 'X-Request-Id': randomUUID(), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin', 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:; frame-ancestors 'none'" });
+        res.set({
+            'X-Request-Id': randomUUID(),
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+            'Referrer-Policy': 'same-origin',
+            'Content-Security-Policy': "default-src 'self' https://www.gstatic.com https://fonts.gstatic.com https://fonts.googleapis.com; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' 'unsafe-inline' https://www.gstatic.com; connect-src 'self' https://www.gstatic.com https://fonts.gstatic.com data: blob:; img-src 'self' data: blob: https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; worker-src 'self' blob:; frame-ancestors 'none'"
+        });
         const origin = req.get('Origin');
         if (origin && origin !== cfg.origin) {
             res.status(403).json({ error: { code: 'ORIGIN_FORBIDDEN', message: 'Nguồn yêu cầu không được phép.' } });
