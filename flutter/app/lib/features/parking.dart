@@ -34,7 +34,7 @@ class _ParkingPageState extends State<ParkingPage> {
 
   void _startParkingRfidPolling() {
     _parkingRfidPollTimer?.cancel();
-    _parkingRfidPollTimer = Timer.periodic(const Duration(milliseconds: 180), (t) async {
+    _parkingRfidPollTimer = Timer.periodic(const Duration(milliseconds: 300), (t) async {
       if (!mounted) {
         t.cancel();
         return;

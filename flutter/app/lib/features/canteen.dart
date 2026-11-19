@@ -43,7 +43,7 @@ class _CanteenPageState extends State<CanteenPage> {
 
   void _startRfidPolling() {
     _rfidPollTimer?.cancel();
-    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 180), (timer) async {
+    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) async {
       if (!mounted) {
         timer.cancel();
         return;

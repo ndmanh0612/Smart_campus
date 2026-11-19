@@ -280,7 +280,7 @@ class _EnrollStudentWizardDialogState
 
   void _startRfidPolling() {
     _rfidPollTimer?.cancel();
-    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 180), (
+    _rfidPollTimer = Timer.periodic(const Duration(milliseconds: 300), (
       timer,
     ) async {
       if (!mounted) {

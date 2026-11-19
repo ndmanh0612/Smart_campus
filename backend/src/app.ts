@@ -128,7 +128,9 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     function deviceRoute(path: string, fn: (db: Db, d: Record<string, any>, req: Request) => Promise<unknown>, method: 'get' | 'post' = 'post') {
         app[method]('/api/v1' + path, handler(async (req, res) => {
             const d = await transaction(pool, db => devices.deviceAuth(db, req.get('Authorization') ?? ''));
-            await rateLimit(pool, 'device:' + d.id, 120);
+            if (path !== '/device/raw-tap') {
+                await rateLimit(pool, 'device:' + d.id, 600);
+            }
             if (method === 'get') {
                 send(res, { data: await transaction(pool, db => fn(db, d, req)) });
                 return;
@@ -161,7 +163,14 @@ export function createCampusApp(pool: Pool, cfg: CampusConfig) {
     app.use('/api/v1', (req, res, next) => { void (async () => {
         const a = await actorForToken(pool, req.get('Authorization') ?? '');
         res.locals.actor = a;
-        await rateLimit(pool, 'user:' + a.id, 240);
+        const isRealtimeStreamOrPoll = req.path.startsWith('/face/detect') ||
+            req.path.startsWith('/camera/capture') ||
+            req.path.startsWith('/admin/latest-tapped-card') ||
+            req.path.startsWith('/simulator/events') ||
+            req.path.startsWith('/simulator/status');
+        if (!isRealtimeStreamOrPoll) {
+            await rateLimit(pool, 'user:' + a.id, 1200);
+        }
     })().then(() => next(), next); });
     mountFacePilot(app, pool, () => cfg.env === 'development' && process.env.HOST === '127.0.0.1' ? process.env.FACE_PILOT_CAMERA ?? '' : '');
     function read(path: string, roles: string[] | null, fn: RouteFn) {
