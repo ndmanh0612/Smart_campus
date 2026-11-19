@@ -622,6 +622,9 @@ function registerAcademic(read: Read, write: Write) {
     write('/attendance/sessions/:id/open', lecturerRoles, ({ db, a, req }) => attendance.openSession(db, a, uuid(req.params.id), req.body));
     write('/attendance/sessions/:id/close', lecturerRoles, ({ db, a, req }) => attendance.closeSession(db, a, uuid(req.params.id), req.body));
     write('/attendance/sessions/:id/cancel', lecturerRoles, ({ db, a, req }) => attendance.closeSession(db, a, uuid(req.params.id), req.body, true));
+    write('/attendance/sessions/:id/checkin', lecturerRoles, async ({ db, a, req }) => {
+        return attendance.checkinReal(db, a, uuid(req.params.id), req.body, cfg.cardKey);
+    }, 'post', true);
     read('/attendance/sessions/:id', lecturerRoles, async ({ db, a, req }) => { const s = await one(db, 'SELECT * FROM attendance_sessions WHERE id=$1', [uuid(req.params.id)]); await attendance.teachingScope(db, a, s.section_id); return s; });
     read('/attendance/sessions/:id/records', lecturerRoles, async ({ db, a, req }) => { const s = await one(db, 'SELECT * FROM attendance_sessions WHERE id=$1', [uuid(req.params.id)]); await attendance.teachingScope(db, a, s.section_id); return (await db.query('SELECT r.*,u.name,st.student_code FROM attendance_records r JOIN students st ON st.id=r.student_id JOIN users u ON u.id=st.user_id WHERE r.session_id=$1 ORDER BY st.student_code', [s.id])).rows; });
     write('/attendance/records/:id', lecturerRoles, ({ db, a, req }) => attendance.correctRecord(db, a, uuid(req.params.id), req.body), 'patch');

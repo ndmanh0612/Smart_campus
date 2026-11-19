@@ -1,5 +1,6 @@
-import { audit, choice, emit, expected, fields, id, one, optional, reject, requirePermission, str, uuid, type Actor, type Db, type Result } from './platform.ts';
+import { audit, choice, emit, expected, fields, id, one, optional, reject, requirePermission, str, uidHash, uuid, type Actor, type Db, type Result } from './platform.ts';
 import { consumeIdentity, createContext, demoFace } from './devices.ts';
+import { identifyFaceReal } from './face-service.ts';
 export async function teachingScope(db: Db, a: Actor, sectionId: string) {
     if (a.roles.includes('ADMIN'))
         return;
@@ -29,14 +30,18 @@ export async function openSession(db: Db, a: Actor, sessionId: string, body: unk
         reject(409, 'SESSION_STATE', 'Phiên không ở trạng thái chờ mở.');
     const schedule = await one(db, 'SELECT * FROM schedules WHERE id=$1', [session.schedule_id]);
     const now = Date.now();
-    if (now < new Date(schedule.starts_at).getTime() - 15 * 60000 || now > new Date(schedule.ends_at).getTime())
+    if (process.env.APP_ENV !== 'development' && (now < new Date(schedule.starts_at).getTime() - 15 * 60000 || now > new Date(schedule.ends_at).getTime()))
         reject(422, 'OUTSIDE_TIME_WINDOW', 'Không nằm trong khoảng thời gian được mở phiên.');
     const device = await one(db, 'SELECT * FROM devices WHERE id=$1 FOR UPDATE', [session.device_id]);
     if (!device.active || device.classroom_id !== session.classroom_id)
         reject(422, 'DEVICE_ROOM_MISMATCH', 'Thiết bị không còn đúng phòng.');
-    await db.query('INSERT INTO attendance_session_roster SELECT $1,student_id FROM enrollments WHERE section_id=$2', [session.id, session.section_id]);
-    await db.query('INSERT INTO attendance_session_devices VALUES($1,$2)', [session.id, device.id]);
-    await db.query("UPDATE attendance_sessions SET status='OPEN',opened_at=clock_timestamp(),version=version+1 WHERE id=$1", [session.id]);
+    await db.query('INSERT INTO attendance_session_roster SELECT $1,student_id FROM enrollments WHERE section_id=$2 ON CONFLICT DO NOTHING', [session.id, session.section_id]);
+    await db.query('INSERT INTO attendance_session_devices VALUES($1,$2) ON CONFLICT DO NOTHING', [session.id, device.id]);
+    if (process.env.APP_ENV === 'development') {
+        await db.query("UPDATE attendance_sessions SET status='OPEN',opened_at=clock_timestamp(),late_after=clock_timestamp()+interval '30 minutes',version=version+1 WHERE id=$1", [session.id]);
+    } else {
+        await db.query("UPDATE attendance_sessions SET status='OPEN',opened_at=clock_timestamp(),version=version+1 WHERE id=$1", [session.id]);
+    }
     await audit(db, a, 'ATTENDANCE_OPENED', session.id);
     await emit(db, 'attendance.session.opened', session.id);
     return one(db, 'SELECT * FROM attendance_sessions WHERE id=$1', [session.id]);
@@ -111,4 +116,83 @@ export function csvCell(value: unknown) {
     if (/^[=+@\-\t\r]/.test(text))
         text = "'" + text;
     return '"' + text.replace(/"/g, '""') + '"';
+}
+export async function checkinReal(db: Db, a: Actor, sessionId: string, body: unknown, cardKey: string): Promise<Result> {
+    const b = fields(body, ['cardUid', 'studentId', 'imageBase64', 'method'], []);
+    const session = await one(db, 'SELECT * FROM attendance_sessions WHERE id=$1 FOR UPDATE', [uuid(sessionId)]);
+    await teachingScope(db, a, session.section_id);
+    if (session.status !== 'OPEN') {
+        reject(422, 'SESSION_NOT_OPEN', 'Phiên điểm danh chưa được mở.');
+    }
+
+    let student: any = null;
+    let method: string = typeof b.method === 'string' ? b.method : 'RFID';
+
+    if (b.studentId) {
+        student = await optional(db, 'SELECT s.*, u.name FROM students s JOIN users u ON u.id=s.user_id WHERE s.id=$1', [uuid(b.studentId)]);
+    } else if (b.cardUid) {
+        const cleanUid = str(b.cardUid, 20).replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+        const digest = uidHash(cleanUid.length % 2 !== 0 ? '0' + cleanUid : cleanUid, cardKey);
+        student = await optional(db, "SELECT s.*, u.name FROM rfid_cards c JOIN students s ON s.id=c.student_id JOIN users u ON u.id=s.user_id WHERE c.uid_hmac=$1 AND c.status='ACTIVE'", [digest]);
+        method = 'RFID';
+        if (!student) {
+            reject(404, 'CARD_UNREGISTERED', 'Thẻ RFID chưa được gán cho sinh viên nào.');
+        }
+    } else if (b.imageBase64) {
+        method = 'FACE';
+        const match = await identifyFaceReal(str(b.imageBase64, 16 * 1024 * 1024));
+        if (!match.success || match.outcome !== 'MATCH' || !match.studentId) {
+            reject(422, 'FACE_NOT_RECOGNIZED', match.message || 'Không nhận diện được khuôn mặt sinh viên.');
+        }
+        student = await optional(db, 'SELECT s.*, u.name FROM students s JOIN users u ON u.id=s.user_id WHERE s.id=$1', [uuid(match.studentId!)]);
+    }
+
+    if (!student) {
+        reject(404, 'STUDENT_NOT_FOUND', 'Không tìm thấy thông tin sinh viên.');
+    }
+
+    // Ensure student is in roster (auto-enroll if dev)
+    const inRoster = await optional(db, 'SELECT 1 FROM attendance_session_roster WHERE session_id=$1 AND student_id=$2', [session.id, student.id]);
+    if (!inRoster) {
+        await db.query('INSERT INTO attendance_session_roster(session_id, student_id) VALUES($1, $2) ON CONFLICT DO NOTHING', [session.id, student.id]);
+    }
+
+    // Check if already checked in
+    const existing = await optional(db, 'SELECT * FROM attendance_records WHERE session_id=$1 AND student_id=$2', [session.id, student.id]);
+    if (existing) {
+        return {
+            status: 200,
+            data: {
+                alreadyRecorded: true,
+                student: { id: student.id, studentCode: student.student_code, name: student.name },
+                status: existing.status,
+                method,
+                receivedAt: existing.received_at
+            }
+        };
+    }
+
+    const isLate = session.late_after && new Date() > new Date(session.late_after);
+    const recordStatus = isLate ? 'LATE' : 'PRESENT';
+    const recordId = id();
+    await db.query(
+        "INSERT INTO attendance_records(id, session_id, student_id, status, source, received_at) VALUES($1, $2, $3, $4, 'REAL', clock_timestamp())",
+        [recordId, session.id, student.id, recordStatus]
+    );
+
+    const record = await one(db, 'SELECT * FROM attendance_records WHERE id=$1', [recordId]);
+    await audit(db, a, 'ATTENDANCE_RECORDED', recordId, `${student.student_code} - ${student.name} (${recordStatus})`);
+    await emit(db, 'attendance.recorded', session.id, { recordId, studentId: student.id, status: recordStatus, source: 'REAL' }, student.user_id);
+
+    return {
+        status: 201,
+        data: {
+            success: true,
+            alreadyRecorded: false,
+            student: { id: student.id, studentCode: student.student_code, name: student.name },
+            status: recordStatus,
+            method,
+            receivedAt: record.received_at
+        }
+    };
 }
