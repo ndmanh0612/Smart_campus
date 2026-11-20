@@ -59,7 +59,7 @@ echo.
 echo ========================================================
 echo   HE THONG DA SAN SANG!
 echo   * Web App: http://localhost:8081
-echo   * ESP32 Wi-Fi: "VIETTEL T6" [pass 12345678.]
+echo   * ESP32 Wi-Fi: "MiPi" [pass 88888888]
 echo ========================================================
 echo Cua so nay se tu dong dong sau 5 giay...
 ping 127.0.0.1 -n 6 > nul

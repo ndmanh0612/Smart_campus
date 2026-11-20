@@ -19,7 +19,11 @@ if exist "%SCRIPT_DIR%smart_campus\.work\toolchains\arduino\arduino-cli.exe" (
 
 set "CLI=%PROJECT_ROOT%\.work\toolchains\arduino\arduino-cli.exe"
 set "CONFIG=%PROJECT_ROOT%\.work\toolchains\arduino\arduino-cli.yaml"
-set "SKETCH=%PROJECT_ROOT%\.work\MqttCampusRFID"
+if exist "%PROJECT_ROOT%\firmware\MqttCampusRFID\MqttCampusRFID.ino" (
+    set "SKETCH=%PROJECT_ROOT%\firmware\MqttCampusRFID"
+) else (
+    set "SKETCH=%PROJECT_ROOT%\.work\MqttCampusRFID"
+)
 set "FQBN=esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,CDCOnBoot=cdc,UploadSpeed=512000"
 
 echo [1/3] Kiem tra ket noi ESP32 tren cong COM...
@@ -35,7 +39,7 @@ echo       Bien dich thanh cong!
 
 echo.
 echo [3/3] Dang nap firmware vao ESP32 (%TARGET_PORT%)...
-echo       * Luu y: Hay dam bao da tat Serial Monitor trong Arduino IDE!
+taskkill /f /im serial-monitor.exe > nul 2>&1
 "%CLI%" upload -p %TARGET_PORT% --config-file "%CONFIG%" --fqbn "%FQBN%" "%SKETCH%"
 if %ERRORLEVEL% neq 0 (
     echo.
